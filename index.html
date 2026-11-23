@@ -332,7 +332,7 @@ p { margin: 0; line-height: 1.5; color: var(--muted); }
   let G = null;             // one-phone game
   let O = null;             // online game
   let entry = '';
-  let reveal = false;
+  let reveal = true;   // while choosing a secret, the digits show unless the player hides them
   let message = { text: '', err: false };
 
   /* ---------- Direct phone-to-phone connection (PeerJS) ----------
@@ -703,7 +703,7 @@ p { margin: 0; line-height: 1.5; color: var(--muted); }
 
   function newLocalGame(first, cfg) {
     G = { id: Date.now(), phase: 'secret', cfg, who: first, secrets: ['', ''], logs: [[], []], hints: [null, null], marks: [[], []], turn: first, first, winner: null, passNext: null };
-    entry = ''; reveal = false; markMode = false; message = { text: '', err: false };
+    entry = ''; reveal = true; markMode = false; message = { text: '', err: false };
     render();
   }
 
@@ -718,7 +718,7 @@ p { margin: 0; line-height: 1.5; color: var(--muted); }
         <p>${G.passNext === 'secret' ? 'עכשיו תורך לבחור מספר סודי. ודאו שאף אחד לא מציץ.' : 'כל המספרים נבחרו. אפשר להתחיל לנחש!'}</p>
         <button class="btn p${i + 1}" id="go" style="min-width:200px">המשך</button>
       </div>`;
-    app.querySelector('#go').onclick = () => { G.phase = G.passNext; entry = ''; reveal = false; message = { text: '', err: false }; render(); };
+    app.querySelector('#go').onclick = () => { G.phase = G.passNext; entry = ''; reveal = true; message = { text: '', err: false }; render(); };
   }
 
   function renderLocalEntry(mode) {
@@ -884,7 +884,7 @@ p { margin: 0; line-height: 1.5; color: var(--muted); }
     O = { code: s.code, role: s.role, secret: s.secret || '', me: s.me, opp: null, oppSeen: false, hostSeen: false, specs: 0, hostP: null, guestP: null, status: 'connecting', r: null,
       marks: Array.isArray(s.marks) ? s.marks.filter(d => /^\d$/.test(d)) : [] };
     O.me.role = s.role;
-    entry = ''; reveal = false; markMode = false; message = { text: '', err: false };
+    entry = ''; reveal = true; markMode = false; message = { text: '', err: false };
     saveOnline(); render();
     const isHost = s.role === HOST;
     const fresh = isHost && !s.me.ready && !s.me.guestPid;
@@ -1081,7 +1081,7 @@ p { margin: 0; line-height: 1.5; color: var(--muted); }
           <button class="eye" id="eye">${reveal ? 'הסתר מספר' : 'הצג מספר'}</button>
         </div>
         ${slotsHTML(c.n, !reveal)}${padHTML(c.n, c.rep, 'אישור', true)}`;
-      bindPad(c.n, c.rep, () => { O.secret = entry; me.ready = true; entry = ''; reveal = false; push(); render(); }, true);
+      bindPad(c.n, c.rep, () => { O.secret = entry; me.ready = true; entry = ''; reveal = true; push(); render(); }, true);
       app.querySelector('#eye').onclick = () => { reveal = !reveal; render(); };
     } else if (ph === 'play') {
       const pr = pair(), c = me.cfg, turnRole = turnOf(pr), mine = turnRole === O.role;
@@ -1161,7 +1161,7 @@ p { margin: 0; line-height: 1.5; color: var(--muted); }
     const me = O.me, op = O.opp;
     const gid = op && op.gid > me.gid ? op.gid : me.gid + 1;
     O.me = freshMe(O.role, me.name, me.pid, me.cfg, gid, me.guestPid);
-    O.secret = ''; O.marks = []; entry = ''; reveal = false; markMode = false; message = { text: '', err: false };
+    O.secret = ''; O.marks = []; entry = ''; reveal = true; markMode = false; message = { text: '', err: false };
     push(); render();
   }
 
