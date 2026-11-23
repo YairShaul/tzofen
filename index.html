@@ -1,0 +1,1139 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>צופן נגד צופן</title>
+<meta name="description" content="משחק ניחוש מספרים לשני שחקנים">
+<meta name="theme-color" content="#18202E">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="צופן">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;700;800&family=Assistant:wght@400;600;700&display=swap">
+<style>
+/* Layout: one-screen app — header (timer on the right), two guess logs side by side, entry slots + keypad pinned at the bottom */
+:root {
+  --bg: #E9EDF3;
+  --surface: #F8FAFC;
+  --ink: #18202E;
+  --muted: #5B6678;
+  --line: #CBD3DF;
+  --p1: #D9482B;
+  --p1-soft: #F8DDD6;
+  --p2: #17847F;
+  --p2-soft: #D3EEEC;
+  --bull: #23955A;
+  --cow: #D69412;
+  --hint: #6B4FD8;
+  --hint-soft: #E6E0FB;
+  --key: #FFFFFF;
+  --key-press: #DCE3EC;
+  --shadow: 0 1px 0 rgba(24,32,46,.12), 0 2px 6px rgba(24,32,46,.06);
+  --font-display: "Rubik", "Assistant", system-ui, sans-serif;
+  --font-body: "Assistant", "Rubik", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #121722; --surface: #1B2230; --ink: #E8ECF3; --muted: #97A2B5; --line: #2D3748;
+    --p1: #FF7457; --p1-soft: #3A221E; --p2: #3CC2BA; --p2-soft: #15302F;
+    --bull: #43C47E; --cow: #F2B53A; --hint: #A592FF; --hint-soft: #29234A;
+    --key: #232C3C; --key-press: #2F3A4E;
+    --shadow: 0 1px 0 rgba(0,0,0,.4); color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #121722; --surface: #1B2230; --ink: #E8ECF3; --muted: #97A2B5; --line: #2D3748;
+  --p1: #FF7457; --p1-soft: #3A221E; --p2: #3CC2BA; --p2-soft: #15302F;
+  --bull: #43C47E; --cow: #F2B53A; --hint: #A592FF; --hint-soft: #29234A;
+  --key: #232C3C; --key-press: #2F3A4E;
+  --shadow: 0 1px 0 rgba(0,0,0,.4); color-scheme: dark;
+}
+html, body { height: 100%; }
+[hidden] { display: none !important; }
+body {
+  margin: 0;
+  -webkit-user-select: none; user-select: none;
+  background: var(--bg); color: var(--ink);
+  font-family: var(--font-body); font-size: 16px;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+* { box-sizing: border-box; }
+button { font: inherit; color: inherit; cursor: pointer; }
+button:focus-visible, input:focus-visible { outline: 3px solid var(--p2); outline-offset: 2px; }
+.num { direction: ltr; unicode-bidi: isolate; font-family: var(--font-display); font-variant-numeric: tabular-nums; }
+
+#app {
+  height: 100%; max-width: 560px; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-top: max(12px, env(safe-area-inset-top, 0px));
+  padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
+  display: flex; flex-direction: column; gap: 12px;
+}
+input { -webkit-user-select: text; user-select: text; }
+.link-btn { background: none; border: none; color: var(--p2); font-weight: 700; font-size: .85rem; padding: 2px 0; text-decoration: underline; }
+.pin-input { font: 800 1.6rem var(--font-display) !important; letter-spacing: .4em; text-align: center; direction: ltr; padding: 10px !important; border-radius: 10px; border: 1.5px solid var(--line); background: var(--bg); color: var(--ink); width: 100%; }
+.install { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--hint-soft); color: var(--hint); border-radius: 12px; padding: 10px 14px; font-weight: 700; font-size: .9rem; }
+.install button { background: var(--hint); color: #fff; border: none; border-radius: 99px; padding: 6px 14px; font: 700 .9rem var(--font-display); flex: none; }
+.steps { margin: 0; padding-inline-start: 20px; display: flex; flex-direction: column; gap: 6px; text-align: start; color: var(--ink); line-height: 1.5; }
+.screen { flex: 1; display: flex; flex-direction: column; gap: 16px; min-height: 0; }
+.scroll { overflow-y: auto; }
+.center { justify-content: center; }
+
+h1, h2 { font-family: var(--font-display); text-wrap: balance; margin: 0; }
+h1 { font-size: 2.3rem; font-weight: 800; letter-spacing: -.01em; line-height: 1.05; }
+h2 { font-size: 1.5rem; font-weight: 700; }
+p { margin: 0; line-height: 1.5; color: var(--muted); }
+
+.logo { display: flex; gap: 6px; direction: ltr; }
+.logo span { width: 34px; height: 44px; border-radius: 8px; display: grid; place-items: center; font: 800 1.4rem var(--font-display); background: var(--surface); border: 2px solid var(--line); }
+.logo span.b { background: var(--bull); border-color: var(--bull); color: #fff; }
+.logo span.c { border-color: var(--cow); color: var(--cow); }
+
+.panel { background: var(--surface); border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 14px; box-shadow: var(--shadow); }
+.panel-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.lock { font-size: .8rem; font-weight: 700; color: var(--muted); }
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field label, .label { font-size: .8rem; font-weight: 700; color: var(--muted); letter-spacing: .04em; }
+.field input[type=text] {
+  font: 600 1.05rem var(--font-body); padding: 10px 12px; border-radius: 10px;
+  border: 1.5px solid var(--line); background: var(--bg); color: var(--ink); width: 100%;
+}
+.names { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.names .field:first-child input { border-color: var(--p1); }
+.names .field:last-child input { border-color: var(--p2); }
+.seg { display: flex; gap: 6px; }
+.seg button { flex: 1; min-width: 0; padding: 9px 0; border-radius: 10px; border: 1.5px solid var(--line); background: var(--bg); font: 700 1rem var(--font-display); white-space: nowrap; }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.seg button:disabled { cursor: default; }
+.seg button:disabled:not([aria-pressed="true"]) { opacity: .45; }
+.toggle { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.toggle input { width: 22px; height: 22px; accent-color: var(--p2); flex: none; }
+
+.btn { padding: 14px 18px; border-radius: 12px; border: none; font: 700 1.1rem var(--font-display); background: var(--ink); color: var(--bg); }
+.btn.p1 { background: var(--p1); color: #fff; }
+.btn.p2 { background: var(--p2); color: #fff; }
+.btn.ghost { background: transparent; color: var(--muted); border: 1.5px solid var(--line); }
+.btn:disabled { opacity: .4; cursor: default; }
+.btn:active:not(:disabled) { transform: translateY(1px); }
+.btn small { display: block; font: 600 .8rem var(--font-body); opacity: .85; margin-top: 2px; }
+.modes { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+.rules { display: flex; flex-direction: column; gap: 8px; font-size: .95rem; }
+.rules div { display: flex; align-items: center; gap: 10px; color: var(--muted); flex-wrap: wrap; }
+
+.peg { display: inline-flex; align-items: center; gap: 4px; font: 700 1rem var(--font-display); }
+.peg i { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+.peg.bull i { background: var(--bull); }
+.peg.cow i { border: 2.5px solid var(--cow); }
+.peg.zero { opacity: .35; }
+.wait-dots { color: var(--muted); font-weight: 700; letter-spacing: .1em; animation: blink 1.2s infinite; }
+@keyframes blink { 50% { opacity: .3; } }
+
+/* Header */
+.top { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 44px; }
+.top-start { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.top-end { display: flex; align-items: center; gap: 10px; flex: none; }
+.top .x { background: none; border: none; color: var(--muted); font-weight: 700; padding: 6px 4px; }
+.turn-banner { font-family: var(--font-display); font-weight: 700; font-size: 1.15rem; min-width: 0; }
+.turn-banner b { color: var(--pc); }
+.code-chip { font-size: .8rem; color: var(--muted); font-weight: 700; white-space: nowrap; }
+.code-chip .num { letter-spacing: .1em; color: var(--ink); }
+.watch { font-size: .75rem; font-weight: 700; color: var(--bg); background: var(--muted); border-radius: 99px; padding: 3px 9px; white-space: nowrap; }
+
+/* Turn timer */
+.timer { position: relative; width: 44px; height: 44px; flex: none; display: grid; place-items: center; }
+.timer svg { position: absolute; inset: 0; transform: rotate(-90deg); }
+.timer circle { fill: none; stroke-width: 3.5; }
+.timer .trk { stroke: var(--line); }
+.timer .arc { stroke: var(--pc); stroke-dasharray: 97.4; stroke-linecap: round; transition: stroke-dashoffset .25s linear; }
+.timer span { font: 800 1rem var(--font-display); font-variant-numeric: tabular-nums; }
+.timer.low .arc { stroke: var(--p1); }
+.timer.low span { color: var(--p1); animation: blink .5s infinite; }
+
+/* Logs */
+.boards { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.board { min-width: 0; display: flex; flex-direction: column; background: var(--surface); border-radius: 14px; border: 2px solid transparent; overflow: hidden; transition: border-color .2s, opacity .2s; }
+.board.active { border-color: var(--pc); }
+.board:not(.active) { opacity: .72; }
+.board-head { padding: 8px 10px; background: var(--pc-soft); display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
+.board-head strong { font-family: var(--font-display); color: var(--pc); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.board-head span { font-size: .8rem; color: var(--muted); white-space: nowrap; }
+.hint-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 6px 10px; background: var(--hint-soft); color: var(--hint); font-size: .8rem; font-weight: 700; }
+.mini { display: inline-flex; gap: 3px; }
+.mini i, .mini b { width: 20px; height: 24px; border-radius: 5px; display: grid; place-items: center; font-style: normal; font: 800 .95rem var(--font-display); }
+.mini i { border: 1.5px dashed var(--hint); opacity: .5; }
+.mini b { background: var(--hint); color: #fff; }
+.log { flex: 1; overflow-y: auto; padding: 4px 8px 8px; display: flex; flex-direction: column; }
+.row { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 7px 2px; border-bottom: 1px solid var(--line); }
+.row:last-child { border-bottom: none; }
+.row .g { font-size: 1.15rem; font-weight: 700; letter-spacing: .12em; }
+.row .skip { font-size: .85rem; font-weight: 700; color: var(--muted); }
+.row .res { display: flex; gap: 8px; }
+.row.new { animation: pop .35s ease-out; }
+.empty { color: var(--muted); font-size: .85rem; padding: 14px 4px; text-align: center; }
+@keyframes pop { from { background: var(--pc-soft); } to { background: transparent; } }
+
+/* Hint button */
+.hint-bar { display: flex; justify-content: center; min-height: 34px; align-items: center; }
+.hint-btn { border: 1.5px solid var(--hint); color: var(--hint); background: var(--hint-soft); border-radius: 99px; padding: 6px 16px; font: 700 .95rem var(--font-display); }
+.hint-btn:disabled { opacity: .45; }
+.hint-note { font-size: .85rem; font-weight: 700; color: var(--muted); }
+
+/* Entry */
+.slots { display: flex; justify-content: center; gap: 8px; direction: ltr; }
+.slot { width: 52px; height: 62px; border-radius: 12px; background: var(--surface); border: 2px solid var(--line); display: grid; place-items: center; font: 800 2rem var(--font-display); }
+.slot.filled { border-color: var(--pc, var(--ink)); }
+.slot.cursor { border-style: dashed; border-color: var(--pc, var(--ink)); }
+.msg { min-height: 1.4em; text-align: center; font-weight: 600; color: var(--muted); }
+.msg.err { color: var(--p1); }
+
+.pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; direction: ltr; }
+.pad button { height: 54px; border-radius: 12px; border: none; background: var(--key); box-shadow: var(--shadow); font: 600 1.5rem var(--font-display); }
+.pad button:active { background: var(--key-press); }
+.pad button:disabled { opacity: .3; }
+.pad .ok { background: var(--pc, var(--ink)); color: #fff; font-size: 1.1rem; }
+.pad.off { opacity: .45; pointer-events: none; }
+
+.pass { text-align: center; align-items: center; }
+.pass .who { font: 800 2.4rem var(--font-display); color: var(--pc); }
+.phone-icon { width: 64px; height: 100px; border: 4px solid var(--pc); border-radius: 14px; position: relative; animation: tilt 2.4s ease-in-out infinite; }
+.phone-icon::after { content: ""; position: absolute; bottom: 8px; left: 50%; width: 14px; height: 4px; margin-left: -7px; border-radius: 2px; background: var(--pc); }
+@keyframes tilt { 0%,100% { transform: rotate(-8deg); } 50% { transform: rotate(8deg); } }
+
+/* Online lobby */
+.big-code { font: 800 3.4rem var(--font-display); letter-spacing: .25em; color: var(--pc); direction: ltr; text-align: center; }
+.or { display: flex; align-items: center; gap: 10px; color: var(--muted); font-weight: 700; font-size: .85rem; }
+.or::before, .or::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.join-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+.join-row input { font: 800 1.4rem var(--font-display) !important; letter-spacing: .3em; text-align: center; direction: ltr; }
+.note { font-size: .85rem; color: var(--muted); line-height: 1.5; }
+.spinner { width: 34px; height: 34px; border-radius: 50%; border: 4px solid var(--line); border-top-color: var(--pc, var(--ink)); animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.win { text-align: center; align-items: center; }
+.win .who { font: 800 2.6rem var(--font-display); color: var(--pc); }
+.reveal { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; }
+.reveal div { background: var(--surface); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.reveal .num { font-size: 1.6rem; font-weight: 800; letter-spacing: .15em; }
+.actions { display: flex; flex-direction: column; gap: 10px; width: 100%; }
+
+.sheet { position: fixed; inset: 0; background: rgba(10,14,22,.5); display: grid; place-items: center; padding: 16px; z-index: 20; }
+.sheet .panel { max-width: 340px; width: 100%; text-align: center; }
+.sheet .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+.eye { background: none; border: none; color: var(--muted); font-weight: 700; font-size: .9rem; align-self: center; padding: 6px 10px; }
+
+@media (max-height: 680px) {
+  .pad button { height: 46px; }
+  .slot { height: 52px; width: 46px; font-size: 1.7rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+</head>
+<body>
+<div id="app" dir="rtl"></div>
+
+<script>
+(function () {
+  const app = document.getElementById('app');
+
+  /* ---------- Game options (only the owner can change them) ---------- */
+  const OPTS = { n: [3, 4, 5, 6], timer: [0, 15, 30, 60, 90], hintAfter: [0, 3, 5, 8] };
+  const DEF = { n: 4, rep: false, timer: 0, hintAfter: 0 };
+  function cleanCfg(o) {
+    o = o && typeof o === 'object' ? o : {};
+    return {
+      n: OPTS.n.includes(o.n) ? o.n : DEF.n,
+      rep: !!o.rep,
+      timer: OPTS.timer.includes(o.timer) ? o.timer : 0,
+      hintAfter: OPTS.hintAfter.includes(o.hintAfter) ? o.hintAfter : 0,
+    };
+  }
+  function cfgText(c) {
+    return [
+      `${c.n} ספרות`,
+      c.rep ? 'ספרות חוזרות מותרות' : 'בלי ספרות חוזרות',
+      c.timer ? `${c.timer} שניות לתור` : 'בלי טיימר',
+      c.hintAfter ? `רמז אחרי ${c.hintAfter} תורות` : 'בלי רמז',
+    ].join(' · ');
+  }
+
+  // Owner lock: settings open only with the owner's code. The code itself is not
+  // stored here, only its SHA-256 fingerprint.
+  const OWNER_HASH = 'e8d389b9847a1dc577208ccc55317d2d56c15d5d77930d0b4acbcdd52d4f70d1';
+  const ls = {
+    get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} },
+    del(k) { try { localStorage.removeItem(k); } catch (e) {} },
+  };
+  let IS_OWNER = ls.get('cvc-owner') === OWNER_HASH;
+  let CFG = cleanCfg(IS_OWNER ? (() => { try { return JSON.parse(ls.get('cvc-cfg')); } catch (e) { return null; } })() : DEF);
+  const ownerKnown = true, cfgLoaded = true, savingCfg = false;
+  let cfgErr = '';
+
+  async function sha256(text) {
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+  function saveCfg() { if (IS_OWNER) ls.set('cvc-cfg', JSON.stringify(CFG)); }
+
+  function askOwnerCode() {
+    const el = document.createElement('div');
+    el.className = 'sheet'; el.dir = 'rtl';
+    el.innerHTML = `<div class="panel"><h2>קוד מנהל</h2><p>רק מי שיודע את הקוד יכול לשנות את ההגדרות.</p>
+      <input id="pin" class="pin-input" type="password" inputmode="numeric" maxlength="8" autocomplete="off">
+      <div class="msg err" id="pinmsg"></div>
+      <div class="row2"><button class="btn ghost" id="no">ביטול</button><button class="btn" id="yes">פתיחה</button></div></div>`;
+    document.body.appendChild(el);
+    const input = el.querySelector('#pin');
+    setTimeout(() => input.focus(), 50);
+    const tryIt = async () => {
+      let h = '';
+      try { h = await sha256('tzofen:' + input.value.trim()); } catch (e) {}
+      if (h === OWNER_HASH) {
+        ls.set('cvc-owner', OWNER_HASH); IS_OWNER = true;
+        try { CFG = cleanCfg(JSON.parse(ls.get('cvc-cfg'))); } catch (e) {}
+        el.remove(); render();
+      } else { el.querySelector('#pinmsg').textContent = 'קוד שגוי'; input.value = ''; }
+    };
+    el.querySelector('#yes').onclick = tryIt;
+    input.onkeydown = e => { if (e.key === 'Enter') tryIt(); };
+    el.querySelector('#no').onclick = () => el.remove();
+  }
+
+  let S = loadLocal();      // per-device: names
+  let MODE = 'home';        // home | local | lobby | online
+  let G = null;             // one-phone game
+  let O = null;             // online game
+  let entry = '';
+  let reveal = false;
+  let message = { text: '', err: false };
+
+  /* ---------- Direct phone-to-phone connection (PeerJS) ----------
+     The phone that creates a game is the hub: everyone connects to it with the
+     game code, sends it their own state, and it sends everyone's state back. */
+  const PREFIX = 'tzofen-neged-tzofen-v1-';
+  const RTC = { config: { iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:global.stun.twilio.com:3478' },
+  ] } };
+  const roomKnown = true;
+  let ROOM = { ok: () => typeof window.Peer === 'function' && navigator.onLine !== false };
+
+  function openRoom(code, asHost) {
+    return new Promise((resolve, reject) => {
+      let mine = {}, closed = false, done = false, myId = null, hostConn = null, retryT = null;
+      const handlers = [], states = new Map(), conns = new Map();
+      let list = [];
+      const clone = o => JSON.parse(JSON.stringify(o));
+      const emitPeers = () => {
+        const peers = asHost
+          ? [{ peer: myId, sameTab: true, kind: 'viewer', presence: mine }, ...[...states].map(([peer, presence]) => ({ peer, sameTab: false, kind: 'viewer', presence }))]
+          : list.map(x => ({ peer: x.peer, sameTab: x.peer === myId, kind: 'viewer', presence: x.presence }));
+        handlers.forEach(h => { try { h({ peers }); } catch (e) { console.error(e); } });
+      };
+      const broadcast = () => {
+        const payload = { t: 'peers', list: [{ peer: myId, presence: mine }, ...[...states].map(([peer, presence]) => ({ peer, presence }))] };
+        conns.forEach(c => { if (c.open) { try { c.send(payload); } catch (e) {} } });
+        emitPeers();
+      };
+      const room = {
+        presence(patch) {
+          mine = clone(Object.assign({}, mine, patch));
+          if (asHost) broadcast();
+          else if (hostConn && hostConn.open) { try { hostConn.send({ t: 'p', presence: mine }); } catch (e) {} }
+          return Promise.resolve();
+        },
+        onPeers(h) { handlers.push(h); setTimeout(emitPeers, 0); return () => {}; },
+        leave() { closed = true; clearTimeout(retryT); try { peer.destroy(); } catch (e) {} return Promise.resolve(); },
+      };
+      const finish = () => { if (!done) { done = true; resolve(room); } };
+      const retry = () => {
+        if (closed || retryT) return;
+        retryT = setTimeout(() => { retryT = null; connectHost(); }, 3000);
+      };
+      function connectHost() {
+        if (closed || !peer || peer.destroyed) return;
+        if (peer.disconnected) { try { peer.reconnect(); } catch (e) {} return retry(); }
+        let c;
+        try { c = peer.connect(PREFIX + code, { reliable: true }); } catch (e) { return retry(); }
+        let opened = false;
+        const to = setTimeout(() => { if (!opened) { try { c.close(); } catch (e) {} retry(); } }, 10000);
+        c.on('open', () => {
+          opened = true; clearTimeout(to);
+          hostConn = c;
+          try { c.send({ t: 'p', presence: mine }); } catch (e) {}
+        });
+        c.on('data', d => {
+          if (d && d.t === 'peers' && Array.isArray(d.list)) {
+            list = d.list.filter(x => x && typeof x.peer === 'string' && x.presence && typeof x.presence === 'object').slice(0, 50);
+            emitPeers();
+          }
+        });
+        c.on('close', () => { clearTimeout(to); if (hostConn === c) { hostConn = null; list = []; emitPeers(); } retry(); });
+        c.on('error', () => {});
+      }
+
+      const peer = asHost ? new Peer(PREFIX + code, RTC) : new Peer(RTC);
+      peer.on('open', id => { myId = id; finish(); if (!asHost) connectHost(); else broadcast(); });
+      peer.on('error', err => {
+        const t = err && err.type;
+        if (asHost && t === 'unavailable-id') { try { peer.destroy(); } catch (e) {} if (!done) return reject({ code: 'taken' }); return; }
+        if (!asHost && t === 'peer-unavailable') { if (hostConn) { hostConn = null; list = []; emitPeers(); } return retry(); }
+        if (!done && (t === 'network' || t === 'server-error' || t === 'socket-error' || t === 'socket-closed' || t === 'browser-incompatible')) {
+          try { peer.destroy(); } catch (e) {}
+          return reject({ code: t });
+        }
+      });
+      peer.on('disconnected', () => { if (!closed) setTimeout(() => { if (!closed && !peer.destroyed) { try { peer.reconnect(); } catch (e) {} } }, 2000); });
+      if (asHost) {
+        peer.on('connection', c => {
+          c.on('open', () => { conns.set(c.peer, c); broadcast(); });
+          c.on('data', d => {
+            if (d && d.t === 'p' && d.presence && typeof d.presence === 'object' && JSON.stringify(d.presence).length < 8000) {
+              states.set(c.peer, d.presence); broadcast();
+            }
+          });
+          c.on('close', () => { conns.delete(c.peer); states.delete(c.peer); broadcast(); });
+          c.on('error', () => {});
+        });
+      }
+    });
+  }
+  let resumeOnReady = false;
+
+  function loadLocal() {
+    const d = { names: ['שחקן 1', 'שחקן 2'], myName: '' };
+    try { const s = JSON.parse(localStorage.getItem('cvc-local')); if (s && Array.isArray(s.names)) return Object.assign(d, s); } catch (e) {}
+    return d;
+  }
+  function saveLocal() { try { localStorage.setItem('cvc-local', JSON.stringify(S)); } catch (e) {} }
+
+  function score(secret, guess) {
+    let bulls = 0; const cs = {}, cg = {};
+    for (let i = 0; i < secret.length; i++) {
+      if (secret[i] === guess[i]) bulls++;
+      cs[secret[i]] = (cs[secret[i]] || 0) + 1;
+      cg[guess[i]] = (cg[guess[i]] || 0) + 1;
+    }
+    let common = 0;
+    for (const k in cg) common += Math.min(cg[k], cs[k] || 0);
+    return { bulls, cows: common - bulls };
+  }
+
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const pc = i => `--pc: var(--p${i + 1}); --pc-soft: var(--p${i + 1}-soft);`;
+  const lname = i => esc(S.names[i] || `שחקן ${i + 1}`);
+  const pegs = (b, c) => `<span class="peg bull ${b ? '' : 'zero'}" title="במקום"><i></i>${b}</span><span class="peg cow ${c ? '' : 'zero'}" title="לא במקום"><i></i>${c}</span>`;
+
+  /* ---------- Turn timer ---------- */
+  let TIMER = null, timerUsed = false;
+  function setTimer(key, total, onExpire) {
+    if (!total) return;
+    timerUsed = true;
+    if (!TIMER || TIMER.key !== key) {
+      // Keep counting from when the turn really started, even if the app was closed in between
+      let start = Date.now();
+      try { const t = JSON.parse(ls.get('cvc-timer')); if (t && t.key === key && t.start <= start) start = t.start; } catch (e) {}
+      TIMER = { key, total, start, onExpire, fired: false };
+      ls.set('cvc-timer', JSON.stringify({ key, start }));
+    } else TIMER.onExpire = onExpire;
+  }
+  const timerHTML = total => total ? `<div class="timer" id="timer" role="timer" aria-label="זמן שנותר לתור"><svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="15.5" class="trk"/><circle cx="18" cy="18" r="15.5" class="arc" id="tarc"/></svg><span id="tsec">${total}</span></div>` : '';
+  function tick() {
+    if (!TIMER) return;
+    const left = Math.max(0, TIMER.total - (Date.now() - TIMER.start) / 1000);
+    const s = document.getElementById('tsec'), a = document.getElementById('tarc'), t = document.getElementById('timer');
+    if (s) s.textContent = Math.ceil(left);
+    if (a) a.style.strokeDashoffset = (97.4 * (1 - left / TIMER.total)).toFixed(1);
+    if (t) t.classList.toggle('low', left <= 5);
+    if (left <= 0 && !TIMER.fired) { TIMER.fired = true; if (TIMER.onExpire) TIMER.onExpire(); }
+  }
+  setInterval(tick, 250);
+
+  /* ---------- Keypad ---------- */
+  let padKey = null;
+  function slotsHTML(n, masked) {
+    return `<div class="slots" aria-live="polite">${Array.from({ length: n }, (_, k) => {
+      const ch = entry[k];
+      const shown = ch === undefined ? '' : (masked ? '•' : ch);
+      return `<div class="slot ${ch !== undefined ? 'filled' : ''} ${k === entry.length ? 'cursor' : ''}">${shown}</div>`;
+    }).join('')}</div>`;
+  }
+  function padHTML(n, repeats, okLabel, enabled) {
+    const dis = d => (entry.length >= n || (!repeats && entry.includes(String(d)))) ? 'disabled' : '';
+    return `<div class="msg ${message.err ? 'err' : ''}">${message.text}</div>
+      <div class="pad ${enabled ? '' : 'off'}">
+        ${[1, 2, 3, 4, 5, 6, 7, 8, 9].map(d => `<button data-d="${d}" ${dis(d)}>${d}</button>`).join('')}
+        <button data-k="back" aria-label="מחק">⌫</button>
+        <button data-d="0" ${dis(0)}>0</button>
+        <button data-k="ok" class="ok" ${entry.length === n ? '' : 'disabled'}>${okLabel}</button>
+      </div>`;
+  }
+  function bindPad(n, repeats, onOk, enabled) {
+    padKey = enabled ? k => {
+      if (k === 'ok') { if (entry.length === n) onOk(); return; }
+      message = { text: '', err: false };
+      if (k === 'back') entry = entry.slice(0, -1);
+      else if (entry.length < n && (repeats || !entry.includes(k))) entry += k;
+      render();
+    } : null;
+    app.querySelectorAll('.pad button').forEach(b => b.onclick = () => padKey && padKey(b.dataset.d !== undefined ? b.dataset.d : b.dataset.k));
+  }
+  document.addEventListener('keydown', e => {
+    if (!padKey || document.querySelector('.sheet') || e.target.tagName === 'INPUT') return;
+    if (/^[0-9]$/.test(e.key)) padKey(e.key);
+    else if (e.key === 'Backspace') padKey('back');
+    else if (e.key === 'Enter') padKey('ok');
+  });
+
+  /* ---------- Shared pieces ---------- */
+  function boardHTML(p, label, rows, active, fresh, hint, n) {
+    const body = rows.length
+      ? rows.map((r, k) => `<div class="row ${k === rows.length - 1 && fresh ? 'new' : ''}">${r.skip
+          ? `<span class="skip">⏱ נגמר הזמן</span>`
+          : `<span class="g num">${esc(r.g)}</span><span class="res">${r.b === undefined ? '<span class="wait-dots">•••</span>' : pegs(r.b, r.c)}</span>`}</div>`).join('')
+      : `<div class="empty">עוד אין ניחושים</div>`;
+    const hintRow = hint ? `<div class="hint-row"><span>💡 רמז</span><span class="mini num">${Array.from({ length: n }, (_, i) => i === hint.p ? `<b>${esc(hint.d)}</b>` : '<i></i>').join('')}</span></div>` : '';
+    return `<section class="board ${active ? 'active' : ''}" style="${pc(p)}">
+      <div class="board-head"><strong>${label}</strong><span>${rows.length} תורות</span></div>
+      ${hintRow}
+      <div class="log">${body}</div>
+    </section>`;
+  }
+  function hintBarHTML(cfg, hint, done, pending, canUse) {
+    if (!cfg.hintAfter || hint) return '';
+    let inner;
+    if (pending) inner = `<span class="hint-note">💡 מגלה ספרה…</span>`;
+    else {
+      const left = cfg.hintAfter - done;
+      inner = left > 0
+        ? `<span class="hint-note">💡 רמז ייפתח ${left === 1 ? 'אחרי התור הבא' : `אחרי עוד ${left} תורות`}</span>`
+        : `<button class="hint-btn" id="hint" ${canUse ? '' : 'disabled'}>💡 גלה ספרה אחת של היריב</button>`;
+    }
+    return `<div class="hint-bar">${inner}</div>`;
+  }
+  function topHTML(timerTotal, title, end) {
+    return `<div class="top"><div class="top-start">${timerHTML(timerTotal)}<span class="turn-banner">${title}</span></div><div class="top-end">${end || ''}</div></div>`;
+  }
+  function scrollLogs() { app.querySelectorAll('.log').forEach(l => l.scrollTop = l.scrollHeight); }
+  function confirmQuit(onYes, text) {
+    const el = document.createElement('div');
+    el.className = 'sheet'; el.dir = 'rtl';
+    el.innerHTML = `<div class="panel"><h2>לצאת מהמשחק?</h2><p>${text || 'המשחק הנוכחי יימחק.'}</p>
+      <div class="row2"><button class="btn ghost" id="no">חזרה</button><button class="btn p1" id="yes">יציאה</button></div></div>`;
+    document.body.appendChild(el);
+    el.querySelector('#no').onclick = () => el.remove();
+    el.querySelector('#yes').onclick = () => { el.remove(); onYes(); };
+    el.onclick = e => { if (e.target === el) el.remove(); };
+  }
+
+  /* ---------- Router ---------- */
+  function render() {
+    padKey = null; timerUsed = false;
+    route();
+    if (!timerUsed) TIMER = null;
+    // Remember a one-phone game so reopening the app returns to it
+    if (MODE === 'local' && G) ls.set('cvc-game', JSON.stringify(G)); else ls.del('cvc-game');
+    tick();
+  }
+  function route() {
+    if (MODE === 'lobby') return renderLobby();
+    if (MODE === 'online' && O) return renderOnline();
+    if (MODE === 'local' && G) {
+      if (G.phase === 'names') return renderLocalNames();
+      if (G.phase === 'secret') return renderLocalEntry('secret');
+      if (G.phase === 'pass') return renderPass();
+      if (G.phase === 'play') return renderLocalEntry('play');
+      if (G.phase === 'win') return renderLocalWin();
+    }
+    MODE = 'home';
+    renderHome();
+  }
+
+  function renderHome() {
+    app.style.cssText = '';
+    const dis = IS_OWNER ? '' : 'disabled';
+    const seg = (key, label, fmt) => `<div class="field"><span class="label">${label}</span><div class="seg" role="group" aria-label="${label}">
+      ${OPTS[key].map(v => `<button type="button" data-k="${key}" data-v="${v}" aria-pressed="${CFG[key] === v}" ${dis}>${fmt(v)}</button>`).join('')}</div></div>`;
+    const lockText = IS_OWNER
+      ? '<span>🔓 מצב מנהל</span> <button class="link-btn" id="lockbtn">נעילה</button>'
+      : '<button class="link-btn" id="unlock">🔒 נעול · פתיחה עם קוד מנהל</button>';
+    const installBar = isStandalone() ? '' : (installEvt
+      ? `<div class="install"><span>📲 התקינו את המשחק כאפליקציה</span><button id="install">התקנה</button></div>`
+      : `<div class="install"><span>📲 אפשר להתקין את המשחק במסך הבית</span><button id="howinstall">איך?</button></div>`);
+    app.innerHTML = `
+      <div class="screen scroll">
+        <div class="logo" aria-hidden="true"><span class="b">5</span><span class="c">6</span><span>9</span><span class="b">1</span></div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <h1>צופן נגד צופן</h1>
+          <p>כל שחקן בוחר מספר סודי. מנחשים לסירוגין, ומי שמפצח ראשון את המספר של השני – מנצח.</p>
+        </div>
+        ${installBar}
+        <div class="modes">
+          <button class="btn p1" id="local">טלפון אחד<small>מעבירים מיד ליד</small></button>
+          <button class="btn p2" id="online">כל אחד בטלפון שלו<small>משחק אונליין עם קוד</small></button>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><span class="label">הגדרות המשחק</span><span class="lock">${lockText}</span></div>
+          ${seg('n', 'כמות ספרות', v => v)}
+          <label class="toggle" for="rep"><span>לאפשר ספרות חוזרות (למשל 5515)</span><input id="rep" type="checkbox" ${CFG.rep ? 'checked' : ''} ${dis}></label>
+          ${seg('timer', 'זמן לכל תור (שניות)', v => v ? v : 'ללא')}
+          ${seg('hintAfter', 'רמז: גילוי ספרה אחת אחרי … תורות', v => v ? v : 'ללא')}
+        </div>
+        <div class="panel rules">
+          <span class="label">איך קוראים את התשובה</span>
+          <div><span class="peg bull"><i></i></span> ספרה נכונה במקום הנכון</div>
+          <div><span class="peg cow"><i></i></span> ספרה נכונה אבל במקום אחר</div>
+          <div>מספר סודי <span class="num" style="font-weight:700">5691</span>, ניחוש <span class="num" style="font-weight:700">2610</span> ← ${pegs(1, 1)}</div>
+        </div>
+      </div>`;
+    if (IS_OWNER) {
+      app.querySelectorAll('.seg button').forEach(b => b.onclick = () => { CFG[b.dataset.k] = +b.dataset.v; saveCfg(); render(); });
+      app.querySelector('#rep').onchange = e => { CFG.rep = e.target.checked; saveCfg(); render(); };
+      app.querySelector('#lockbtn').onclick = () => { IS_OWNER = false; ls.del('cvc-owner'); CFG = cleanCfg(DEF); render(); };
+    } else {
+      app.querySelector('#unlock').onclick = askOwnerCode;
+    }
+    const ib = app.querySelector('#install');
+    if (ib) ib.onclick = async () => { const e = installEvt; installEvt = null; try { e.prompt(); await e.userChoice; } catch (x) {} render(); };
+    const hb = app.querySelector('#howinstall');
+    if (hb) hb.onclick = showInstallHelp;
+    app.querySelector('#local').onclick = () => { MODE = 'local'; G = { phase: 'names' }; render(); };
+    app.querySelector('#online').onclick = () => { MODE = 'lobby'; message = { text: '', err: false }; render(); };
+  }
+
+  /* ---------- Install as an app ---------- */
+  let installEvt = null;
+  const isStandalone = () => (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
+  window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; if (MODE === 'home') render(); });
+  window.addEventListener('appinstalled', () => { installEvt = null; if (MODE === 'home') render(); });
+  function showInstallHelp() {
+    const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+    const el = document.createElement('div');
+    el.className = 'sheet'; el.dir = 'rtl';
+    el.innerHTML = `<div class="panel"><h2>התקנה במסך הבית</h2>
+      ${ios
+        ? `<ol class="steps"><li>פתחו את המשחק ב-Safari.</li><li>לחצו על כפתור השיתוף ⬆️.</li><li>בחרו "הוסף למסך הבית" ואז "הוסף".</li></ol>`
+        : `<ol class="steps"><li>פתחו את המשחק ב-Chrome.</li><li>לחצו על ⋮ בפינה העליונה.</li><li>בחרו "התקנת אפליקציה" או "הוספה למסך הבית".</li></ol>`}
+      <button class="btn" id="ok">הבנתי</button></div>`;
+    document.body.appendChild(el);
+    el.querySelector('#ok').onclick = () => el.remove();
+    el.onclick = e => { if (e.target === el) el.remove(); };
+  }
+  if ('serviceWorker' in navigator && location.protocol === 'https:') {
+    window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+  }
+
+  /* ================= ONE PHONE ================= */
+  function renderLocalNames() {
+    app.style.cssText = '';
+    app.innerHTML = `
+      <div class="screen center">
+        <h2>מי משחק?</h2>
+        <div class="panel">
+          <div class="names">
+            <div class="field"><label for="n1">שחקן ראשון</label><input id="n1" type="text" maxlength="14" value="${esc(S.names[0])}"></div>
+            <div class="field"><label for="n2">שחקן שני</label><input id="n2" type="text" maxlength="14" value="${esc(S.names[1])}"></div>
+          </div>
+          <p class="note">${cfgText(CFG)}</p>
+        </div>
+        <button class="btn" id="start">מתחילים</button>
+        <button class="btn ghost" id="back">חזרה</button>
+      </div>`;
+    app.querySelector('#start').onclick = () => {
+      S.names[0] = app.querySelector('#n1').value.trim().slice(0, 14) || 'שחקן 1';
+      S.names[1] = app.querySelector('#n2').value.trim().slice(0, 14) || 'שחקן 2';
+      saveLocal(); newLocalGame(0, cleanCfg(CFG));
+    };
+    app.querySelector('#back').onclick = () => { MODE = 'home'; G = null; render(); };
+  }
+
+  function newLocalGame(first, cfg) {
+    G = { id: Date.now(), phase: 'secret', cfg, who: first, secrets: ['', ''], logs: [[], []], hints: [null, null], turn: first, first, winner: null, passNext: null };
+    entry = ''; reveal = false; message = { text: '', err: false };
+    render();
+  }
+
+  function renderPass() {
+    const i = G.who;
+    app.style.cssText = pc(i);
+    app.innerHTML = `
+      <div class="screen center pass">
+        <div class="phone-icon" aria-hidden="true"></div>
+        <p>העבירו את המכשיר אל</p>
+        <div class="who">${lname(i)}</div>
+        <p>${G.passNext === 'secret' ? 'עכשיו תורך לבחור מספר סודי. ודאו שאף אחד לא מציץ.' : 'כל המספרים נבחרו. אפשר להתחיל לנחש!'}</p>
+        <button class="btn p${i + 1}" id="go" style="min-width:200px">המשך</button>
+      </div>`;
+    app.querySelector('#go').onclick = () => { G.phase = G.passNext; entry = ''; reveal = false; message = { text: '', err: false }; render(); };
+  }
+
+  function renderLocalEntry(mode) {
+    const c = G.cfg;
+    const i = mode === 'secret' ? G.who : G.turn;
+    app.style.cssText = pc(i);
+    const quit = `<button class="x" id="quit">יציאה</button>`;
+    if (mode === 'secret') {
+      app.innerHTML = `${topHTML(0, `<b>${lname(i)}</b>, בחר/י מספר סודי`, quit)}
+        <div class="screen center" style="gap:10px">
+          <p style="text-align:center">${c.n} ספרות${c.rep ? '' : ', בלי ספרה שחוזרת על עצמה'}. ${lname(1 - i)} ינסה/תנסה לנחש אותו.</p>
+          <button class="eye" id="eye">${reveal ? 'הסתר מספר' : 'הצג מספר'}</button>
+        </div>
+        ${slotsHTML(c.n, !reveal)}${padHTML(c.n, c.rep, 'אישור', true)}`;
+      bindPad(c.n, c.rep, submitLocalSecret, true);
+      app.querySelector('#eye').onclick = () => { reveal = !reveal; render(); };
+    } else {
+      setTimer(`L${G.id}:${G.logs[0].length}:${G.logs[1].length}`, c.timer, localTimeout);
+      const boards = [0, 1].map(p => boardHTML(p, lname(p), G.logs[p], G.turn === p, G.lastBy === p, G.hints[p], c.n)).join('');
+      app.innerHTML = `${topHTML(c.timer, `התור של <b>${lname(i)}</b>`, quit)}
+        <div class="boards">${boards}</div>
+        ${hintBarHTML(c, G.hints[i], G.logs[i].length, false, true)}
+        ${slotsHTML(c.n, false)}${padHTML(c.n, c.rep, 'נחש', true)}`;
+      bindPad(c.n, c.rep, submitLocalGuess, true);
+      const h = app.querySelector('#hint');
+      if (h) h.onclick = () => {
+        const s = G.secrets[1 - i], p = Math.floor(Math.random() * s.length);
+        G.hints[i] = { p, d: s[p] };
+        message = { text: `💡 ${lname(i)} גילה/תה ספרה אחת`, err: false };
+        render();
+      };
+      scrollLogs();
+    }
+    app.querySelector('#quit').onclick = () => confirmQuit(() => { G = null; MODE = 'home'; render(); });
+  }
+
+  function submitLocalSecret() {
+    G.secrets[G.who] = entry;
+    if (G.who === G.first) { G.who = 1 - G.first; G.passNext = 'secret'; }
+    else { G.who = G.turn; G.passNext = 'play'; }
+    G.phase = 'pass';
+    entry = '';
+    render();
+  }
+  function submitLocalGuess() {
+    const p = G.turn;
+    const { bulls, cows } = score(G.secrets[1 - p], entry);
+    G.logs[p].push({ g: entry, b: bulls, c: cows });
+    G.lastBy = p;
+    entry = '';
+    if (bulls === G.cfg.n) { G.winner = p; G.phase = 'win'; return render(); }
+    G.turn = 1 - p;
+    message = { text: `${lname(p)}: ${bulls} במקום, ${cows} לא במקום`, err: false };
+    render();
+  }
+  function localTimeout() {
+    if (!G || G.phase !== 'play') return;
+    const p = G.turn;
+    G.logs[p].push({ skip: true });
+    G.lastBy = p;
+    G.turn = 1 - p;
+    entry = '';
+    message = { text: `⏱ נגמר הזמן ל${lname(p)}. התור עבר.`, err: true };
+    render();
+  }
+
+  function renderLocalWin() {
+    const w = G.winner;
+    app.style.cssText = pc(w);
+    app.innerHTML = `
+      <div class="screen center win">
+        <div class="logo" aria-hidden="true">${G.secrets[1 - w].split('').map(d => `<span class="b">${d}</span>`).join('')}</div>
+        <p>פיצח/ה את הצופן!</p>
+        <div class="who">${lname(w)}</div>
+        <p>אחרי ${G.logs[w].length} תורות</p>
+        <div class="reveal">
+          ${[0, 1].map(i => `<div style="${pc(i)}"><span class="label" style="color:var(--pc)">המספר של ${lname(i)}</span><span class="num">${G.secrets[i]}</span></div>`).join('')}
+        </div>
+        <div class="actions">
+          <button class="btn p${w + 1}" id="again">משחק חוזר</button>
+          <button class="btn ghost" id="home">למסך הראשי</button>
+        </div>
+      </div>`;
+    app.querySelector('#again').onclick = () => newLocalGame(1 - w, cleanCfg(CFG));   // loser starts
+    app.querySelector('#home').onclick = () => { G = null; MODE = 'home'; render(); };
+  }
+
+  /* ================= ONLINE ================= */
+  // Each phone keeps its own secret. Presence carries only names, the game
+  // options, the guesses made and the answers computed for the opponent.
+  // A secret is shared only once the game is over. The first person to join
+  // with the code becomes the second player; anyone after that watches.
+  const HOST = 0, GUEST = 1, SPEC = 2;
+
+  function loadOnline() {
+    try { const s = JSON.parse(localStorage.getItem('cvc-online')); if (s && /^\d{4}$/.test(s.code) && s.me && s.me.pid) return s; } catch (e) {}
+    return null;
+  }
+  function saveOnline() {
+    if (!O) return;
+    try { localStorage.setItem('cvc-online', JSON.stringify({ code: O.code, role: O.role, secret: O.secret, me: O.me })); } catch (e) {}
+  }
+  function clearOnline() { try { localStorage.removeItem('cvc-online'); } catch (e) {} }
+  const newPid = () => Math.random().toString(36).slice(2, 10);
+
+  function freshMe(role, nm, pid, cfg, gid, guestPid) {
+    return { app: 'cvc', v: 2, role, pid, name: nm, cfg, gid, ready: false, guesses: [], answers: [], reveal: null, guestPid: guestPid || null, hintReq: false, hint: null };
+  }
+
+  function renderLobby() {
+    app.style.cssText = pc(GUEST);
+    const saved = loadOnline();
+    let body;
+    if (!ROOM.ok()) {
+      body = `<div class="panel">
+          <h2>אין חיבור לאינטרנט</h2>
+          <p class="note">משחק אונליין צריך אינטרנט. בינתיים אפשר לשחק במצב "טלפון אחד".</p>
+          <button class="btn" id="retrynet">ניסיון חוזר</button>
+        </div>`;
+    } else {
+      body = `
+        <div class="panel">
+          <div class="field"><label for="myname">השם שלך</label><input id="myname" type="text" maxlength="14" value="${esc(S.myName || '')}" placeholder="איך יקראו לך במשחק"></div>
+        </div>
+        ${saved ? `<button class="btn" id="resume">חזרה למשחק <span class="num">${esc(saved.code)}</span></button>` : ''}
+        <div class="panel">
+          <button class="btn p1" id="create">יצירת משחק חדש<small>${cfgText(CFG)}</small></button>
+          <div class="or">או</div>
+          <div class="field">
+            <label for="code">יש לי קוד (לשחק או לצפות)</label>
+            <div class="join-row"><input id="code" type="text" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="0000"><button class="btn p2" id="join">הצטרפות</button></div>
+          </div>
+          <div class="msg ${message.err ? 'err' : ''}">${message.text}</div>
+        </div>
+        <p class="note">הראשון שמצטרף עם הקוד משחק נגדך. כל מי שמצטרף אחריו צופה במשחק בלי להשפיע עליו. הטלפון שיצר את המשחק צריך להישאר עם המשחק פתוח.</p>`;
+    }
+    app.innerHTML = `${topHTML(0, 'משחק אונליין', '<button class="x" id="back">חזרה</button>')}<div class="screen scroll">${body}</div>`;
+    app.querySelector('#back').onclick = () => { MODE = 'home'; message = { text: '', err: false }; render(); };
+    if (!ROOM.ok()) { app.querySelector('#retrynet').onclick = () => location.reload(); return; }
+    const nameOf = () => { S.myName = (app.querySelector('#myname').value.trim() || '').slice(0, 14); saveLocal(); return S.myName || 'שחקן'; };
+    app.querySelector('#create').onclick = () => {
+      const code = String(Math.floor(Math.random() * 10000)).padStart(4, '0');
+      startOnline({ code, role: HOST, secret: '', me: freshMe(HOST, nameOf(), newPid(), cleanCfg(CFG), 0) });
+    };
+    app.querySelector('#join').onclick = () => {
+      const code = app.querySelector('#code').value.replace(/\D/g, '');
+      if (code.length !== 4) { message = { text: 'הקוד צריך להיות 4 ספרות', err: true }; return render(); }
+      startOnline({ code, role: GUEST, secret: '', me: freshMe(GUEST, nameOf(), newPid(), null, 0) });
+    };
+    const r = app.querySelector('#resume'); if (r) r.onclick = () => { nameOf(); resumeOnline(); };
+  }
+
+  function resumeOnline() {
+    const s = loadOnline();
+    if (!s) { MODE = 'lobby'; return render(); }
+    startOnline(s);
+  }
+
+  async function startOnline(s) {
+    if (O && O.r) { try { O.r.leave(); } catch (e) {} }
+    MODE = 'online';
+    O = { code: s.code, role: s.role, secret: s.secret || '', me: s.me, opp: null, oppSeen: false, hostSeen: false, specs: 0, hostP: null, guestP: null, status: 'connecting', r: null };
+    O.me.role = s.role;
+    entry = ''; reveal = false; message = { text: '', err: false };
+    saveOnline(); render();
+    const isHost = s.role === HOST;
+    const fresh = isHost && !s.me.ready && !s.me.guestPid;
+    try {
+      let r = null;
+      for (let attempt = 0; !r; attempt++) {
+        try { r = await openRoom(O.code, isHost); }
+        catch (e) {
+          if (!O || O.code !== s.code) return;
+          if (e && e.code === 'taken' && fresh && attempt < 5) {
+            // Someone else is using this code right now: pick another one
+            O.code = s.code = String(Math.floor(Math.random() * 10000)).padStart(4, '0');
+            saveOnline(); render();
+          } else if (e && e.code === 'taken' && attempt < 25) {
+            // Coming back to my own game: the old connection is still being released
+            await new Promise(res => setTimeout(res, 3000));
+          } else throw e;
+        }
+      }
+      if (!O || O.code !== s.code) { r.leave(); return; }
+      O.r = r; O.status = 'ok';
+      r.onPeers(ch => onPeers(ch.peers), () => { if (O) { O.status = 'lost'; render(); } });
+      push();
+      render();
+    } catch (e) {
+      if (O) { O.status = 'error'; render(); }
+    }
+  }
+
+  function push() {
+    if (!O) return;
+    saveOnline();
+    if (O.r) O.r.presence(JSON.parse(JSON.stringify(O.me))).catch(() => {});
+  }
+
+  const isInt = (x, lo, hi) => Number.isInteger(x) && x >= lo && x <= hi;
+  function cleanPeer(p) {
+    const o = p.presence || {};
+    if (o.app !== 'cvc' || ![HOST, GUEST, SPEC].includes(o.role) || typeof o.pid !== 'string') return null;
+    const cfg = o.cfg && typeof o.cfg === 'object' ? cleanCfg(o.cfg) : null;
+    const n = cfg ? cfg.n : null;
+    const okG = g => typeof g === 'string' && (g === 'x' || (/^\d{3,6}$/.test(g) && (!n || g.length === n)));
+    const h = o.hint;
+    return {
+      role: o.role, pid: o.pid.slice(0, 16), cfg,
+      name: (typeof o.name === 'string' && o.name.trim().slice(0, 14)) || 'שחקן',
+      gid: isInt(o.gid, 0, 1e6) ? o.gid : 0,
+      ready: !!o.ready,
+      guesses: Array.isArray(o.guesses) ? o.guesses.filter(okG).slice(0, 300) : [],
+      answers: Array.isArray(o.answers) ? o.answers.filter(a => typeof a === 'string' && /^(\d\d|--)$/.test(a)).slice(0, 300) : [],
+      reveal: typeof o.reveal === 'string' && /^\d{3,6}$/.test(o.reveal) ? o.reveal : null,
+      guestPid: typeof o.guestPid === 'string' ? o.guestPid.slice(0, 16) : null,
+      hintReq: !!o.hintReq,
+      hint: h && isInt(h.p, 0, 5) && typeof h.d === 'string' && /^\d$/.test(h.d) ? { p: h.p, d: h.d } : null,
+    };
+  }
+
+  function onPeers(peers) {
+    if (!O) return;
+    const all = peers.filter(p => !p.sameTab && p.kind === 'viewer').map(cleanPeer).filter(Boolean);
+    const before = JSON.stringify([O.opp, O.hostP, O.guestP, O.specs]);
+    const me = O.me;
+    let changed = false;
+    O.specs = all.filter(x => x.role === SPEC).length;
+    const host = all.find(x => x.role === HOST) || null;
+
+    if (O.role === HOST) {
+      const guests = all.filter(x => x.role === GUEST);
+      if (!me.guestPid && guests.length) { me.guestPid = guests[0].pid; changed = true; }
+      O.opp = guests.find(x => x.pid === me.guestPid) || null;
+    } else if (O.role === GUEST) {
+      O.hostSeen = !!host;
+      if (host && host.guestPid && host.guestPid !== me.pid) {
+        // Both seats are taken: watch instead
+        O.role = SPEC; me.role = SPEC; me.ready = false; me.guesses = []; me.answers = []; O.secret = '';
+        changed = true;
+      } else {
+        O.opp = host && host.guestPid === me.pid ? host : null;
+        if (O.opp && !me.cfg && O.opp.cfg) { me.cfg = O.opp.cfg; changed = true; }
+      }
+    }
+    if (O.role === SPEC) {
+      O.opp = null;
+      O.hostP = host;
+      O.guestP = host && host.guestPid ? (all.find(x => x.role === GUEST && x.pid === host.guestPid) || null) : null;
+    }
+    if (O.opp) O.oppSeen = true;
+
+    const op = O.opp;
+    if (O.role !== SPEC && op && me.cfg && op.gid === me.gid && me.ready && O.secret) {
+      while (me.answers.length < op.guesses.length) {
+        const g = op.guesses[me.answers.length];
+        if (g === 'x') me.answers.push('--');
+        else { const s = score(O.secret, g); me.answers.push(`${s.bulls}${s.cows}`); }
+        changed = true;
+      }
+      if (op.hintReq && !me.hint) {
+        const p = Math.floor(Math.random() * O.secret.length);
+        me.hint = { p, d: O.secret[p] };
+        changed = true;
+      }
+      if (winnerOf(pair()) !== null && !me.reveal) { me.reveal = O.secret; changed = true; }
+    }
+    if (changed) push();
+    if (changed || before !== JSON.stringify([O.opp, O.hostP, O.guestP, O.specs])) render();
+  }
+
+  // [host, guest] objects for the game in view
+  function pair() {
+    if (O.role === SPEC) return O.hostP && O.guestP ? [O.hostP, O.guestP] : null;
+    if (!O.opp) return null;
+    return O.role === HOST ? [O.me, O.opp] : [O.opp, O.me];
+  }
+  const ans = a => a === '--' ? { skip: true } : { b: +a[0], c: +a[1] };
+  const cfgOf = pr => pr[0].cfg || cleanCfg(DEF);
+  function winnerOf(pr) {
+    if (!pr) return null;
+    const [h, g] = pr, n = cfgOf(pr).n;
+    if (h.gid !== g.gid) return null;
+    const full = a => a !== '--' && +a[0] === n;
+    if (g.answers.some(full)) return HOST;    // guest answered "all in place" to a host guess
+    if (h.answers.some(full)) return GUEST;
+    return null;
+  }
+  function turnOf(pr) {
+    const [h, g] = pr;
+    const first = h.gid % 2 === 0 ? HOST : GUEST;
+    const hostTurn = first === HOST ? h.guesses.length === g.guesses.length : h.guesses.length < g.guesses.length;
+    return hostTurn ? HOST : GUEST;
+  }
+  function rowsOf(guesses, answers) {
+    return guesses.map((g, i) => g === 'x' ? { skip: true } : (answers[i] ? Object.assign({ g }, ans(answers[i])) : { g }));
+  }
+
+  function phase() {
+    const me = O.me, op = O.opp;
+    if (O.status === 'connecting') return 'connecting';
+    if (O.status === 'error' || O.status === 'lost') return 'error';
+    if (O.role === SPEC) return 'spec';
+    if (!me.cfg) return 'waitOpp';
+    if (op && op.gid > me.gid) return 'oppRematch';
+    if (!me.ready) return 'secret';
+    if (!op) return 'waitOpp';
+    if (op.gid < me.gid) return 'waitRematch';
+    if (!op.ready) return 'waitSecret';
+    if (winnerOf(pair()) !== null) return 'over';
+    return 'play';
+  }
+  const pname = x => esc(x ? x.name : 'היריב');
+
+  function leaveOnline() {
+    if (O && O.r) { try { O.r.leave(); } catch (e) {} }
+    O = null; clearOnline(); MODE = 'home'; render();
+  }
+
+  function renderOnline() {
+    const ph = phase();
+    const role = O.role === SPEC ? GUEST : O.role;
+    app.style.cssText = pc(role);
+    const ends = `${O.specs && O.role !== SPEC ? `<span class="watch" title="צופים">👁 ${O.specs}</span>` : ''}${O.role === SPEC ? '<span class="watch">👁 צופה</span>' : ''}<span class="code-chip">קוד <span class="num">${esc(O.code)}</span></span><button class="x" id="quit">יציאה</button>`;
+    const top = (title, timer) => topHTML(timer || 0, title, ends);
+    const waitScreen = (title, text, extra) => `${top(title)}<div class="screen center" style="align-items:center;text-align:center">${extra || ''}<div class="spinner"></div><p>${text}</p></div>`;
+    const me = O.me, op = O.opp;
+
+    if (ph === 'connecting') {
+      app.innerHTML = waitScreen('משחק אונליין', 'מתחבר לחדר המשחק…');
+    } else if (ph === 'error') {
+      app.innerHTML = `${top('משחק אונליין')}<div class="screen center"><div class="panel"><h2>החיבור נותק</h2><p class="note">לא הצלחנו להתחבר לחדר. המשחק שמור בטלפון הזה, אפשר לנסות שוב.</p><button class="btn" id="retry">ניסיון חוזר</button></div></div>`;
+      app.querySelector('#retry').onclick = () => startOnline({ code: O.code, role: O.role, secret: O.secret, me: O.me });
+    } else if (ph === 'spec') {
+      renderSpectator(top, waitScreen);
+    } else if (ph === 'waitOpp' && O.role === HOST && !O.oppSeen) {
+      app.innerHTML = waitScreen('מחכים לחבר', 'שלחו לחבר את הקוד. הוא צריך לפתוח את המשחק, לבחור "כל אחד בטלפון שלו" ולהקליד אותו.',
+        `<p>קוד המשחק</p><div class="big-code">${esc(O.code)}</div>`);
+    } else if (ph === 'waitOpp') {
+      app.innerHTML = waitScreen(O.oppSeen ? 'היריב התנתק' : 'מצטרפים למשחק',
+        O.oppSeen ? 'מחכים שהיריב יחזור למשחק…' : O.hostSeen ? 'מצטרף…' : `מחכים למי שיצר את המשחק עם הקוד ${esc(O.code)}. ודאו שהוא פתוח אצלו.`);
+    } else if (ph === 'waitSecret') {
+      app.innerHTML = waitScreen('המספר שלך נשמר', `מחכים ש<b>${pname(op)}</b> יבחר מספר סודי…`);
+    } else if (ph === 'waitRematch') {
+      app.innerHTML = waitScreen('משחק חוזר', `מחכים ש<b>${pname(op)}</b> יאשר משחק חוזר…`);
+    } else if (ph === 'oppRematch') {
+      app.innerHTML = `${top('משחק חוזר')}<div class="screen center win">
+          <div class="who" style="font-size:2rem">${pname(op)}</div><p>רוצה משחק חוזר!</p>
+          <div class="actions"><button class="btn p${role + 1}" id="again">יאללה</button><button class="btn ghost" id="leave">לא עכשיו</button></div></div>`;
+      app.querySelector('#again').onclick = rematch;
+      app.querySelector('#leave').onclick = leaveOnline;
+    } else if (ph === 'secret') {
+      const c = me.cfg;
+      app.innerHTML = `${top(`<b>${esc(me.name)}</b>, בחר/י מספר סודי`)}
+        <div class="screen center" style="gap:10px">
+          ${O.role === HOST && !O.oppSeen ? `<p style="text-align:center">קוד המשחק לשליחה לחבר</p><div class="big-code" style="font-size:2.4rem">${esc(O.code)}</div>` : ''}
+          <p style="text-align:center">${cfgText(c)}.<br>המספר נשאר רק בטלפון שלך.</p>
+          <button class="eye" id="eye">${reveal ? 'הסתר מספר' : 'הצג מספר'}</button>
+        </div>
+        ${slotsHTML(c.n, !reveal)}${padHTML(c.n, c.rep, 'אישור', true)}`;
+      bindPad(c.n, c.rep, () => { O.secret = entry; me.ready = true; entry = ''; reveal = false; push(); render(); }, true);
+      app.querySelector('#eye').onclick = () => { reveal = !reveal; render(); };
+    } else if (ph === 'play') {
+      const pr = pair(), c = me.cfg, turnRole = turnOf(pr), mine = turnRole === O.role;
+      const key = `O${O.code}:${me.gid}:${pr[0].guesses.length}:${pr[1].guesses.length}`;
+      setTimer(key, c.timer, mine ? onlineTimeout : null);
+      if (!mine) message = { text: `מחכים ש${pname(op)} ינחש…`, err: false };
+      else if (message.text.startsWith('מחכים')) message = { text: '', err: false };
+      app.innerHTML = `${top(mine ? '<b>תורך</b> לנחש' : `התור של <b style="color:var(--p${op.role + 1})">${pname(op)}</b>`, c.timer)}
+        <div class="boards">${onlineBoards(pr, turnRole)}</div>
+        ${hintBarHTML(c, op.hint, me.guesses.length, me.hintReq && !op.hint, true)}
+        ${slotsHTML(c.n, false)}${padHTML(c.n, c.rep, 'נחש', mine)}`;
+      bindPad(c.n, c.rep, () => { me.guesses.push(entry); entry = ''; message = { text: '', err: false }; push(); render(); }, mine);
+      const h = app.querySelector('#hint');
+      if (h) h.onclick = () => { me.hintReq = true; push(); render(); };
+      scrollLogs();
+    } else if (ph === 'over') {
+      renderOver(top, true);
+    }
+    const q = app.querySelector('#quit');
+    if (q) q.onclick = () => confirmQuit(leaveOnline, O.role === SPEC ? 'אפשר לחזור לצפות עם אותו קוד.' : 'אפשר להיכנס שוב עם אותו קוד, אבל המשחק בטלפון הזה יימחק.');
+  }
+
+  function onlineBoards(pr, turnRole) {
+    const [h, g] = pr, n = cfgOf(pr).n;
+    const label = x => `${pname(x)}${O.role !== SPEC && x === O.me ? ' (את/ה)' : ''}`;
+    return boardHTML(HOST, label(h), rowsOf(h.guesses, g.answers), turnRole === HOST, true, g.hint, n)
+         + boardHTML(GUEST, label(g), rowsOf(g.guesses, h.answers), turnRole === GUEST, true, h.hint, n);
+  }
+
+  function onlineTimeout() {
+    if (!O || phase() !== 'play') return;
+    O.me.guesses.push('x');
+    entry = '';
+    message = { text: '⏱ נגמר הזמן. התור עבר.', err: true };
+    push(); render();
+  }
+
+  function renderSpectator(top, waitScreen) {
+    const h = O.hostP, g = O.guestP;
+    if (!h) { app.innerHTML = waitScreen('מצב צפייה', 'מחכים שהמשחק יתחיל…'); return; }
+    if (!g) { app.innerHTML = waitScreen('מצב צפייה', `מחכים לשחקן שני מול ${pname(h)}…`); return; }
+    if (h.gid !== g.gid) { app.innerHTML = waitScreen('מצב צפייה', 'השחקנים מתחילים משחק חוזר…'); return; }
+    if (!h.ready || !g.ready) { app.innerHTML = waitScreen('מצב צפייה', `${pname(h)} ו${pname(g)} בוחרים מספרים סודיים…`); return; }
+    const pr = [h, g];
+    if (winnerOf(pr) !== null) return renderOver(top, false);
+    const c = cfgOf(pr), turnRole = turnOf(pr), cur = pr[turnRole];
+    setTimer(`S${O.code}:${h.gid}:${h.guesses.length}:${g.guesses.length}`, c.timer, null);
+    app.style.cssText = pc(turnRole);
+    app.innerHTML = `${top(`התור של <b>${pname(cur)}</b>`, c.timer)}
+      <div class="boards">${onlineBoards(pr, turnRole)}</div>
+      <p class="note" style="text-align:center">את/ה צופה במשחק. המספרים הסודיים ייחשפו בסוף.</p>`;
+    scrollLogs();
+  }
+
+  function renderOver(top, isPlayer) {
+    const pr = pair(), w = winnerOf(pr), [h, g] = pr, winner = pr[w];
+    const iWon = isPlayer && w === O.role;
+    const secretOf = x => isPlayer && x === O.me ? O.secret : x.reveal;
+    app.style.cssText = pc(w);
+    app.innerHTML = `${top('המשחק נגמר')}
+      <div class="screen center win">
+        <p>${iWon ? 'פיצחת את הצופן!' : isPlayer ? 'פיצח/ה את הצופן שלך' : 'פיצח/ה את הצופן!'}</p>
+        <div class="who">${iWon ? 'ניצחת! 🎉' : pname(winner)}</div>
+        <p>אחרי ${winner.guesses.length} תורות</p>
+        <div class="reveal">${[h, g].map((x, r) => `<div style="${pc(r)}"><span class="label" style="color:var(--pc)">${isPlayer && x === O.me ? 'המספר שלך' : `המספר של ${pname(x)}`}</span><span class="num">${secretOf(x) ? esc(secretOf(x)) : '<span class="wait-dots">•••</span>'}</span></div>`).join('')}</div>
+        <div class="actions">
+          ${isPlayer ? `<button class="btn p${w + 1}" id="again">משחק חוזר</button>` : '<p class="note">אם השחקנים יבחרו במשחק חוזר, הוא יופיע כאן.</p>'}
+          <button class="btn ghost" id="leave">יציאה מהמשחק</button>
+        </div>
+      </div>`;
+    const a = app.querySelector('#again'); if (a) a.onclick = rematch;
+    app.querySelector('#leave').onclick = leaveOnline;
+  }
+
+  function rematch() {
+    const me = O.me, op = O.opp;
+    const gid = op && op.gid > me.gid ? op.gid : me.gid + 1;
+    O.me = freshMe(O.role, me.name, me.pid, me.cfg, gid, me.guestPid);
+    O.secret = ''; entry = ''; reveal = false; message = { text: '', err: false };
+    push(); render();
+  }
+
+  /* ---------- Boot ---------- */
+  window.addEventListener('online', () => { if (MODE === 'lobby') render(); });
+  window.addEventListener('offline', () => { if (MODE === 'lobby') render(); });
+  // Reopening the app goes straight back to the game in progress
+  let savedGame = null;
+  try { savedGame = JSON.parse(ls.get('cvc-game')); } catch (e) {}
+  if (savedGame && savedGame.phase && savedGame.id && savedGame.cfg) {
+    G = savedGame; MODE = 'local'; render();
+  } else if (loadOnline()) {
+    if (ROOM.ok()) resumeOnline(); else { MODE = 'lobby'; render(); }
+  } else render();
+})();
+</script>
+</body>
+</html>
