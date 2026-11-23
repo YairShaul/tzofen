@@ -202,6 +202,21 @@ p { margin: 0; line-height: 1.5; color: var(--muted); }
 .pad button:disabled { opacity: .3; }
 .pad .ok { background: var(--pc, var(--ink)); color: #fff; font-size: 1.1rem; }
 .pad.off { opacity: .45; pointer-events: none; }
+.pad button.marked { position: relative; color: var(--muted); background: var(--bg); box-shadow: inset 0 0 0 1.5px var(--line); }
+.pad button.marked::after { content: ""; position: absolute; left: 28%; right: 28%; top: 50%; height: 3px; border-radius: 2px; background: var(--p1); transform: rotate(-35deg); }
+.pad button.marked:disabled { opacity: .85; }
+.pad.marking button[data-d] { box-shadow: inset 0 0 0 2px var(--p1); }
+.pad.marking button.marked { background: var(--p1-soft); }
+
+/* Tools row: mark digits + hint */
+.tools { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 34px; }
+.tools .hint-bar { min-height: 0; }
+.mark-btn { border: 1.5px solid var(--line); background: var(--surface); color: var(--muted); border-radius: 99px; padding: 6px 14px; font: 700 .9rem var(--font-display); white-space: nowrap; }
+.mark-btn.on { background: var(--p1); border-color: var(--p1); color: #fff; }
+
+/* Online: your own secret, so you can see how close the opponent is */
+.mine-strip { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 12px; border-radius: 12px; background: var(--pc-soft); color: var(--pc); font-size: .85rem; font-weight: 700; }
+.mine-strip .mini b { background: var(--pc); }
 
 .pass { text-align: center; align-items: center; }
 .pass .who { font: 800 2.4rem var(--font-display); color: var(--pc); }
@@ -472,25 +487,50 @@ p { margin: 0; line-height: 1.5; color: var(--muted); }
       return `<div class="slot ${ch !== undefined ? 'filled' : ''} ${k === entry.length ? 'cursor' : ''}">${shown}</div>`;
     }).join('')}</div>`;
   }
-  function padHTML(n, repeats, okLabel, enabled) {
-    const dis = d => (entry.length >= n || (!repeats && entry.includes(String(d)))) ? 'disabled' : '';
-    return `<div class="msg ${message.err ? 'err' : ''}">${message.text}</div>
-      <div class="pad ${enabled ? '' : 'off'}">
-        ${[1, 2, 3, 4, 5, 6, 7, 8, 9].map(d => `<button data-d="${d}" ${dis(d)}>${d}</button>`).join('')}
-        <button data-k="back" aria-label="מחק">⌫</button>
-        <button data-d="0" ${dis(0)}>0</button>
-        <button data-k="ok" class="ok" ${entry.length === n ? '' : 'disabled'}>${okLabel}</button>
+  // Marking mode: the player crosses out digits they are sure the opponent doesn't have.
+  // Crossed-out digits can't be typed until they are un-marked.
+  let markMode = false;
+  function padHTML(n, repeats, okLabel, enabled, marks) {
+    const marking = markMode && !!marks;
+    const isM = d => !!marks && marks.includes(String(d));
+    const dis = d => marking ? '' : ((entry.length >= n || (!repeats && entry.includes(String(d))) || isM(d)) ? 'disabled' : '');
+    const key = d => `<button data-d="${d}" class="${isM(d) ? 'marked' : ''}" ${dis(d)} ${isM(d) ? 'aria-label="ספרה ' + d + ' מסומנת"' : ''}>${d}</button>`;
+    const msg = marking ? { text: 'לחצו על ספרה כדי לסמן שהיא לא אצל היריב, או כדי לבטל', err: false } : message;
+    return `<div class="msg ${msg.err ? 'err' : ''}">${msg.text}</div>
+      <div class="pad ${marking ? 'marking' : (enabled ? '' : 'off')}">
+        ${[1, 2, 3, 4, 5, 6, 7, 8, 9].map(key).join('')}
+        <button data-k="back" aria-label="מחק" ${marking ? 'disabled' : ''}>⌫</button>
+        ${key(0)}
+        <button data-k="ok" class="ok" ${entry.length === n && !marking ? '' : 'disabled'}>${okLabel}</button>
       </div>`;
   }
-  function bindPad(n, repeats, onOk, enabled) {
-    padKey = enabled ? k => {
+  function toolsHTML(hintBar) {
+    return `<div class="tools">
+      <button class="mark-btn ${markMode ? 'on' : ''}" id="markbtn" aria-pressed="${markMode}">${markMode ? '✓ סיום סימון' : '✕ סימון ספרות'}</button>
+      ${hintBar || '<span></span>'}
+    </div>`;
+  }
+  function bindPad(n, repeats, onOk, enabled, marks, onMarks) {
+    const canMark = !!marks;
+    padKey = (enabled || (markMode && canMark)) ? k => {
+      if (markMode && canMark) {
+        if (/^\d$/.test(k)) {
+          const i = marks.indexOf(k);
+          if (i >= 0) marks.splice(i, 1); else marks.push(k);
+          if (onMarks) onMarks();
+          render();
+        }
+        return;
+      }
       if (k === 'ok') { if (entry.length === n) onOk(); return; }
       message = { text: '', err: false };
       if (k === 'back') entry = entry.slice(0, -1);
-      else if (entry.length < n && (repeats || !entry.includes(k))) entry += k;
+      else if (entry.length < n && (repeats || !entry.includes(k)) && !(marks && marks.includes(k))) entry += k;
       render();
     } : null;
     app.querySelectorAll('.pad button').forEach(b => b.onclick = () => padKey && padKey(b.dataset.d !== undefined ? b.dataset.d : b.dataset.k));
+    const mb = app.querySelector('#markbtn');
+    if (mb) mb.onclick = () => { markMode = !markMode; render(); };
   }
   document.addEventListener('keydown', e => {
     if (!padKey || document.querySelector('.sheet') || e.target.tagName === 'INPUT') return;
@@ -662,8 +702,8 @@ p { margin: 0; line-height: 1.5; color: var(--muted); }
   }
 
   function newLocalGame(first, cfg) {
-    G = { id: Date.now(), phase: 'secret', cfg, who: first, secrets: ['', ''], logs: [[], []], hints: [null, null], turn: first, first, winner: null, passNext: null };
-    entry = ''; reveal = false; message = { text: '', err: false };
+    G = { id: Date.now(), phase: 'secret', cfg, who: first, secrets: ['', ''], logs: [[], []], hints: [null, null], marks: [[], []], turn: first, first, winner: null, passNext: null };
+    entry = ''; reveal = false; markMode = false; message = { text: '', err: false };
     render();
   }
 
@@ -684,6 +724,7 @@ p { margin: 0; line-height: 1.5; color: var(--muted); }
   function renderLocalEntry(mode) {
     const c = G.cfg;
     const i = mode === 'secret' ? G.who : G.turn;
+    if (!Array.isArray(G.marks)) G.marks = [[], []];
     app.style.cssText = pc(i);
     const quit = `<button class="x" id="quit">יציאה</button>`;
     if (mode === 'secret') {
@@ -700,9 +741,9 @@ p { margin: 0; line-height: 1.5; color: var(--muted); }
       const boards = [0, 1].map(p => boardHTML(p, lname(p), G.logs[p], G.turn === p, G.lastBy === p, G.hints[p], c.n)).join('');
       app.innerHTML = `${topHTML(c.timer, `התור של <b>${lname(i)}</b>`, quit)}
         <div class="boards">${boards}</div>
-        ${hintBarHTML(c, G.hints[i], G.logs[i].length, false, true)}
-        ${slotsHTML(c.n, false)}${padHTML(c.n, c.rep, 'נחש', true)}`;
-      bindPad(c.n, c.rep, submitLocalGuess, true);
+        ${toolsHTML(hintBarHTML(c, G.hints[i], G.logs[i].length, false, true))}
+        ${slotsHTML(c.n, false)}${padHTML(c.n, c.rep, 'נחש', true, G.marks[i])}`;
+      bindPad(c.n, c.rep, submitLocalGuess, true, G.marks[i]);
       const h = app.querySelector('#hint');
       if (h) h.onclick = () => {
         const s = G.secrets[1 - i], p = Math.floor(Math.random() * s.length);
@@ -779,7 +820,7 @@ p { margin: 0; line-height: 1.5; color: var(--muted); }
   }
   function saveOnline() {
     if (!O) return;
-    try { localStorage.setItem('cvc-online', JSON.stringify({ code: O.code, role: O.role, secret: O.secret, me: O.me })); } catch (e) {}
+    try { localStorage.setItem('cvc-online', JSON.stringify({ code: O.code, role: O.role, secret: O.secret, me: O.me, marks: O.marks })); } catch (e) {}
   }
   function clearOnline() { try { localStorage.removeItem('cvc-online'); } catch (e) {} }
   const newPid = () => Math.random().toString(36).slice(2, 10);
@@ -840,9 +881,10 @@ p { margin: 0; line-height: 1.5; color: var(--muted); }
   async function startOnline(s) {
     if (O && O.r) { try { O.r.leave(); } catch (e) {} }
     MODE = 'online';
-    O = { code: s.code, role: s.role, secret: s.secret || '', me: s.me, opp: null, oppSeen: false, hostSeen: false, specs: 0, hostP: null, guestP: null, status: 'connecting', r: null };
+    O = { code: s.code, role: s.role, secret: s.secret || '', me: s.me, opp: null, oppSeen: false, hostSeen: false, specs: 0, hostP: null, guestP: null, status: 'connecting', r: null,
+      marks: Array.isArray(s.marks) ? s.marks.filter(d => /^\d$/.test(d)) : [] };
     O.me.role = s.role;
-    entry = ''; reveal = false; message = { text: '', err: false };
+    entry = ''; reveal = false; markMode = false; message = { text: '', err: false };
     saveOnline(); render();
     const isHost = s.role === HOST;
     const fresh = isHost && !s.me.ready && !s.me.guestPid;
@@ -1048,10 +1090,11 @@ p { margin: 0; line-height: 1.5; color: var(--muted); }
       if (!mine) message = { text: `מחכים ש${pname(op)} ינחש…`, err: false };
       else if (message.text.startsWith('מחכים')) message = { text: '', err: false };
       app.innerHTML = `${top(mine ? '<b>תורך</b> לנחש' : `התור של <b style="color:var(--p${op.role + 1})">${pname(op)}</b>`, c.timer)}
+        <div class="mine-strip"><span>המספר הסודי שלך</span><span class="mini num">${O.secret.split('').map(d => `<b>${esc(d)}</b>`).join('')}</span></div>
         <div class="boards">${onlineBoards(pr, turnRole)}</div>
-        ${hintBarHTML(c, op.hint, me.guesses.length, me.hintReq && !op.hint, true)}
-        ${slotsHTML(c.n, false)}${padHTML(c.n, c.rep, 'נחש', mine)}`;
-      bindPad(c.n, c.rep, () => { me.guesses.push(entry); entry = ''; message = { text: '', err: false }; push(); render(); }, mine);
+        ${toolsHTML(hintBarHTML(c, op.hint, me.guesses.length, me.hintReq && !op.hint, true))}
+        ${slotsHTML(c.n, false)}${padHTML(c.n, c.rep, 'נחש', mine, O.marks)}`;
+      bindPad(c.n, c.rep, () => { me.guesses.push(entry); entry = ''; message = { text: '', err: false }; push(); render(); }, mine, O.marks, saveOnline);
       const h = app.querySelector('#hint');
       if (h) h.onclick = () => { me.hintReq = true; push(); render(); };
       scrollLogs();
@@ -1118,7 +1161,7 @@ p { margin: 0; line-height: 1.5; color: var(--muted); }
     const me = O.me, op = O.opp;
     const gid = op && op.gid > me.gid ? op.gid : me.gid + 1;
     O.me = freshMe(O.role, me.name, me.pid, me.cfg, gid, me.guestPid);
-    O.secret = ''; entry = ''; reveal = false; message = { text: '', err: false };
+    O.secret = ''; O.marks = []; entry = ''; reveal = false; markMode = false; message = { text: '', err: false };
     push(); render();
   }
 
