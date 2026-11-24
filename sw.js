@@ -1,5 +1,5 @@
 // Keeps the app working offline (one-phone mode). Bump VERSION when files change.
-const VERSION = 'tzofen-v6';
+const VERSION = 'tzofen-v7';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 
 self.addEventListener('install', e => {
