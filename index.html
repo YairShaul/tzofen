@@ -245,6 +245,25 @@ p { margin: 0; line-height: 1.5; color: var(--muted); }
 .sheet .panel { max-width: 340px; width: 100%; text-align: center; }
 .sheet .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 
+/* +/- steppers in settings */
+.stepper-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.stepper { display: flex; align-items: center; gap: 4px; direction: ltr; flex: none; }
+.stepper button { width: 40px; height: 40px; border-radius: 10px; border: 1.5px solid var(--line); background: var(--bg); font: 800 1.3rem var(--font-display); display: grid; place-items: center; }
+.stepper button:disabled { opacity: .35; cursor: default; }
+.stepper output { min-width: 72px; text-align: center; font: 700 1.05rem var(--font-display); direction: rtl; }
+
+/* Tournament */
+.tour-btn { background: var(--hint); color: #fff; }
+.bracket { display: flex; flex-direction: column; gap: 10px; }
+.match { background: var(--surface); border-radius: 12px; padding: 10px 12px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 6px; }
+.match.final { border: 2px solid var(--cow); }
+.match .mt { font-size: .75rem; font-weight: 700; color: var(--muted); letter-spacing: .04em; }
+.match .pl { display: flex; justify-content: space-between; align-items: center; font: 700 1.05rem var(--font-display); }
+.match .pl.won { color: var(--bull); }
+.match .pl.lost { color: var(--muted); text-decoration: line-through; }
+.match .pl.tbd { color: var(--muted); font-weight: 500; }
+.names4 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
 .eye { background: none; border: none; color: var(--muted); font-weight: 700; font-size: .9rem; align-self: center; padding: 6px 10px; }
 
 @media (max-height: 680px) {
@@ -264,23 +283,41 @@ p { margin: 0; line-height: 1.5; color: var(--muted); }
   const app = document.getElementById('app');
 
   /* ---------- Game options (only the owner can change them) ---------- */
-  const OPTS = { n: [3, 4, 5, 6], timer: [0, 15, 30, 60, 90], hintAfter: [0, 3, 5, 8] };
-  const DEF = { n: 4, rep: false, timer: 0, hintAfter: 0 };
+  const OPTS = { n: [3, 4, 5, 6] };
+  // +/- steppers: [min, max, step]
+  const STEP = { timer: [0, 600, 5], hintAfter: [0, 50, 1], hintCount: [1, 5, 1] };
+  const DEF = { n: 4, rep: false, timer: 0, hintAfter: 0, hintCount: 1 };
+  const clampInt = (v, lo, hi, d) => Number.isInteger(v) ? Math.min(hi, Math.max(lo, v)) : d;
+  const maxHints = n => n - 1;   // never reveal the whole number
   function cleanCfg(o) {
     o = o && typeof o === 'object' ? o : {};
+    const n = OPTS.n.includes(o.n) ? o.n : DEF.n;
+    const t = clampInt(o.timer, 0, STEP.timer[1], 0);
     return {
-      n: OPTS.n.includes(o.n) ? o.n : DEF.n,
+      n,
       rep: !!o.rep,
-      timer: OPTS.timer.includes(o.timer) ? o.timer : 0,
-      hintAfter: OPTS.hintAfter.includes(o.hintAfter) ? o.hintAfter : 0,
+      timer: t - (t % 5),
+      hintAfter: clampInt(o.hintAfter, 0, STEP.hintAfter[1], 0),
+      hintCount: clampInt(o.hintCount, 1, maxHints(n), 1),
     };
   }
+  function hintText(c) {
+    if (!c.hintAfter) return 'בלי רמזים';
+    if (c.hintCount === 1) return `רמז אחרי ${c.hintAfter} תורות`;
+    return `${c.hintCount} רמזים, כל ${c.hintAfter} תורות`;
+  }
+  function hintScheduleText(c) {
+    const at = Array.from({ length: c.hintCount }, (_, k) => c.hintAfter * (k + 1));
+    return `כל שחקן יוכל לגלות ספרה אחרי ${at.join(', ')} תורות.`;
+  }
+  // Turns a player must have played before hint number k (0-based) opens
+  const hintUnlockAt = (c, k) => c.hintAfter * (k + 1);
   function cfgText(c) {
     return [
       `${c.n} ספרות`,
       c.rep ? 'ספרות חוזרות מותרות' : 'בלי ספרות חוזרות',
       c.timer ? `${c.timer} שניות לתור` : 'בלי טיימר',
-      c.hintAfter ? `רמז אחרי ${c.hintAfter} תורות` : 'בלי רמז',
+      hintText(c),
     ].join(' · ');
   }
 
@@ -302,11 +339,13 @@ p { margin: 0; line-height: 1.5; color: var(--muted); }
     return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
   }
   function saveCfg() { if (IS_OWNER) ls.set('cvc-cfg', JSON.stringify(CFG)); }
+  // Opening a new game (one phone, online host, tournament) is for admins only
+  function adminOnly(fn) { if (IS_OWNER) fn(); else askOwnerCode(fn); }
 
-  function askOwnerCode() {
+  function askOwnerCode(then) {
     const el = document.createElement('div');
     el.className = 'sheet'; el.dir = 'rtl';
-    el.innerHTML = `<div class="panel"><h2>קוד מנהל</h2><p>רק מי שיודע את הקוד יכול לשנות את ההגדרות.</p>
+    el.innerHTML = `<div class="panel"><h2>קוד מנהל</h2><p>רק מנהל יכול לפתוח משחק ולשנות את ההגדרות. אפשר להצטרף למשחק קיים עם קוד גם בלי זה.</p>
       <input id="pin" class="pin-input" type="password" inputmode="numeric" maxlength="8" autocomplete="off">
       <div class="msg err" id="pinmsg"></div>
       <div class="row2"><button class="btn ghost" id="no">ביטול</button><button class="btn" id="yes">פתיחה</button></div></div>`;
@@ -319,7 +358,8 @@ p { margin: 0; line-height: 1.5; color: var(--muted); }
       if (h === OWNER_HASH) {
         ls.set('cvc-owner', OWNER_HASH); IS_OWNER = true;
         try { CFG = cleanCfg(JSON.parse(ls.get('cvc-cfg'))); } catch (e) {}
-        el.remove(); render();
+        el.remove();
+        if (typeof then === 'function') then(); else render();
       } else { el.querySelector('#pinmsg').textContent = 'קוד שגוי'; input.value = ''; }
     };
     el.querySelector('#yes').onclick = tryIt;
@@ -331,6 +371,7 @@ p { margin: 0; line-height: 1.5; color: var(--muted); }
   let MODE = 'home';        // home | local | lobby | online
   let G = null;             // one-phone game
   let O = null;             // online game
+  let T = (() => { try { const t = JSON.parse(ls.get('cvc-tour')); return t && t.phase ? t : null; } catch (e) { return null; } })();   // one-phone tournament
   let entry = '';
   let reveal = true;   // while choosing a secret, the digits show unless the player hides them
   let message = { text: '', err: false };
@@ -450,7 +491,7 @@ p { margin: 0; line-height: 1.5; color: var(--muted); }
 
   const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const pc = i => `--pc: var(--p${i + 1}); --pc-soft: var(--p${i + 1}-soft);`;
-  const lname = i => esc(S.names[i] || `שחקן ${i + 1}`);
+  const lname = i => esc((G && Array.isArray(G.names) ? G.names[i] : S.names[i]) || `שחקן ${i + 1}`);
   const pegs = (b, c) => `<span class="peg bull ${b ? '' : 'zero'}" title="במקום"><i></i>${b}</span><span class="peg cow ${c ? '' : 'zero'}" title="לא במקום"><i></i>${c}</span>`;
 
   /* ---------- Turn timer ---------- */
@@ -546,25 +587,37 @@ p { margin: 0; line-height: 1.5; color: var(--muted); }
           ? `<span class="skip">⏱ נגמר הזמן</span>`
           : `<span class="g num">${esc(r.g)}</span><span class="res">${r.b === undefined ? '<span class="wait-dots">•••</span>' : pegs(r.b, r.c)}</span>`}</div>`).join('')
       : `<div class="empty">עוד אין ניחושים</div>`;
-    const hintRow = hint ? `<div class="hint-row"><span>💡 רמז</span><span class="mini num">${Array.from({ length: n }, (_, i) => i === hint.p ? `<b>${esc(hint.d)}</b>` : '<i></i>').join('')}</span></div>` : '';
+    const hs = Array.isArray(hint) ? hint : (hint ? [hint] : []);
+    const at = i => hs.find(h => h.p === i);
+    const hintRow = hs.length ? `<div class="hint-row"><span>💡 ${hs.length > 1 ? `${hs.length} רמזים` : 'רמז'}</span><span class="mini num">${Array.from({ length: n }, (_, i) => at(i) ? `<b>${esc(at(i).d)}</b>` : '<i></i>').join('')}</span></div>` : '';
     return `<section class="board ${active ? 'active' : ''}" style="${pc(p)}">
       <div class="board-head"><strong>${label}</strong><span>${rows.length} תורות</span></div>
       ${hintRow}
       <div class="log">${body}</div>
     </section>`;
   }
-  function hintBarHTML(cfg, hint, done, pending, canUse) {
-    if (!cfg.hintAfter || hint) return '';
+  // hints: the ones this player already opened. Hint k opens after hintAfter*(k+1) turns.
+  function hintBarHTML(cfg, hints, done, pending, canUse) {
+    const used = hints.length;
+    if (!cfg.hintAfter || used >= cfg.hintCount) return '';
+    const left1 = cfg.hintCount - used;
     let inner;
     if (pending) inner = `<span class="hint-note">💡 מגלה ספרה…</span>`;
     else {
-      const left = cfg.hintAfter - done;
+      const left = hintUnlockAt(cfg, used) - done;
       inner = left > 0
-        ? `<span class="hint-note">💡 רמז ייפתח ${left === 1 ? 'אחרי התור הבא' : `אחרי עוד ${left} תורות`}</span>`
-        : `<button class="hint-btn" id="hint" ${canUse ? '' : 'disabled'}>💡 גלה ספרה אחת של היריב</button>`;
+        ? `<span class="hint-note">💡 רמז ${cfg.hintCount > 1 ? `${used + 1}/${cfg.hintCount} ` : ''}ייפתח ${left === 1 ? 'אחרי התור הבא' : `אחרי עוד ${left} תורות`}</span>`
+        : `<button class="hint-btn" id="hint" ${canUse ? '' : 'disabled'}>💡 גלה ספרה${left1 > 1 ? ` (נשארו ${left1})` : ''}</button>`;
     }
     return `<div class="hint-bar">${inner}</div>`;
   }
+  // Pick a position not revealed yet
+  function newHint(secret, hints) {
+    const free = [...secret].map((_, i) => i).filter(i => !hints.some(h => h.p === i));
+    const p = free[Math.floor(Math.random() * free.length)];
+    return { p, d: secret[p] };
+  }
+  const asHints = h => Array.isArray(h) ? h : (h ? [h] : []);
   function topHTML(timerTotal, title, end) {
     return `<div class="top"><div class="top-start">${timerHTML(timerTotal)}<span class="turn-banner">${title}</span></div><div class="top-end">${end || ''}</div></div>`;
   }
@@ -587,11 +640,13 @@ p { margin: 0; line-height: 1.5; color: var(--muted); }
     if (!timerUsed) TIMER = null;
     // Remember a one-phone game so reopening the app returns to it
     if (MODE === 'local' && G) ls.set('cvc-game', JSON.stringify(G)); else ls.del('cvc-game');
+    if (T) ls.set('cvc-tour', JSON.stringify(T)); else ls.del('cvc-tour');
     tick();
   }
   function route() {
     if (MODE === 'lobby') return renderLobby();
     if (MODE === 'online' && O) return renderOnline();
+    if (MODE === 'tour' && T) return T.phase === 'setup' ? renderTourSetup() : renderBracket();
     if (MODE === 'local' && G) {
       if (G.phase === 'names') return renderLocalNames();
       if (G.phase === 'secret') return renderLocalEntry('secret');
@@ -608,6 +663,14 @@ p { margin: 0; line-height: 1.5; color: var(--muted); }
     const dis = IS_OWNER ? '' : 'disabled';
     const seg = (key, label, fmt) => `<div class="field"><span class="label">${label}</span><div class="seg" role="group" aria-label="${label}">
       ${OPTS[key].map(v => `<button type="button" data-k="${key}" data-v="${v}" aria-pressed="${CFG[key] === v}" ${dis}>${fmt(v)}</button>`).join('')}</div></div>`;
+    const stepper = (key, label, fmt, hi) => {
+      const [lo, max, st] = STEP[key], top = hi === undefined ? max : hi, v = CFG[key];
+      return `<div class="stepper-row"><span>${label}</span><div class="stepper" role="group" aria-label="${label}">
+        <button type="button" data-s="${key}" data-d="-${st}" aria-label="פחות" ${dis} ${v <= lo ? 'disabled' : ''}>−</button>
+        <output>${fmt(v)}</output>
+        <button type="button" data-s="${key}" data-d="${st}" aria-label="יותר" ${dis} ${v >= top ? 'disabled' : ''}>+</button></div></div>`;
+    };
+    const lockedNote = IS_OWNER ? '' : '<p class="note" style="text-align:center">🔒 רק מנהל יכול לפתוח משחק. לחברים: "כל אחד בטלפון שלו" ← הקלדת הקוד שקיבלתם.</p>';
     const lockText = IS_OWNER
       ? '<span>🔓 מצב מנהל</span> <button class="link-btn" id="lockbtn">נעילה</button>'
       : '<button class="link-btn" id="unlock">🔒 נעול · פתיחה עם קוד מנהל</button>';
@@ -623,15 +686,19 @@ p { margin: 0; line-height: 1.5; color: var(--muted); }
         </div>
         ${installBar}
         <div class="modes">
-          <button class="btn p1" id="local">טלפון אחד<small>מעבירים מיד ליד</small></button>
-          <button class="btn p2" id="online">כל אחד בטלפון שלו<small>משחק אונליין עם קוד</small></button>
+          <button class="btn p1" id="local">${IS_OWNER ? '' : '🔒 '}טלפון אחד<small>מעבירים מיד ליד</small></button>
+          <button class="btn p2" id="online">כל אחד בטלפון שלו<small>${IS_OWNER ? 'משחק אונליין עם קוד' : 'הצטרפות עם קוד'}</small></button>
         </div>
+        <button class="btn tour-btn" id="tour">${IS_OWNER ? '' : '🔒 '}🏆 טורניר<small>4 שחקנים · חצאי גמר ואז גמר · בטלפון אחד</small></button>
+        ${lockedNote}
         <div class="panel">
           <div class="panel-head"><span class="label">הגדרות המשחק</span><span class="lock">${lockText}</span></div>
           ${seg('n', 'כמות ספרות', v => v)}
           <label class="toggle" for="rep"><span>לאפשר ספרות חוזרות (למשל 5515)</span><input id="rep" type="checkbox" ${CFG.rep ? 'checked' : ''} ${dis}></label>
-          ${seg('timer', 'זמן לכל תור (שניות)', v => v ? v : 'ללא')}
-          ${seg('hintAfter', 'רמז: גילוי ספרה אחת אחרי … תורות', v => v ? v : 'ללא')}
+          ${stepper('timer', 'זמן לכל תור', v => v ? `<span class="num">${v}</span> שנ׳` : 'ללא')}
+          ${stepper('hintAfter', 'רמז (גילוי ספרה) כל … תורות', v => v ? `<span class="num">${v}</span>` : 'ללא')}
+          ${CFG.hintAfter ? stepper('hintCount', 'כמה רמזים בסך הכל', v => `<span class="num">${v}</span>`, maxHints(CFG.n)) : ''}
+          ${CFG.hintAfter ? `<p class="note">${esc(hintScheduleText(CFG))}</p>` : ''}
         </div>
         <div class="panel rules">
           <span class="label">איך קוראים את התשובה</span>
@@ -641,7 +708,12 @@ p { margin: 0; line-height: 1.5; color: var(--muted); }
         </div>
       </div>`;
     if (IS_OWNER) {
-      app.querySelectorAll('.seg button').forEach(b => b.onclick = () => { CFG[b.dataset.k] = +b.dataset.v; saveCfg(); render(); });
+      app.querySelectorAll('.seg button').forEach(b => b.onclick = () => { CFG[b.dataset.k] = +b.dataset.v; CFG = cleanCfg(CFG); saveCfg(); render(); });
+      app.querySelectorAll('.stepper button').forEach(b => b.onclick = () => {
+        const k = b.dataset.s;
+        CFG[k] = CFG[k] + (+b.dataset.d);
+        CFG = cleanCfg(CFG); saveCfg(); render();
+      });
       app.querySelector('#rep').onchange = e => { CFG.rep = e.target.checked; saveCfg(); render(); };
       app.querySelector('#lockbtn').onclick = () => { IS_OWNER = false; ls.del('cvc-owner'); CFG = cleanCfg(DEF); render(); };
     } else {
@@ -651,7 +723,8 @@ p { margin: 0; line-height: 1.5; color: var(--muted); }
     if (ib) ib.onclick = async () => { const e = installEvt; installEvt = null; try { e.prompt(); await e.userChoice; } catch (x) {} render(); };
     const hb = app.querySelector('#howinstall');
     if (hb) hb.onclick = showInstallHelp;
-    app.querySelector('#local').onclick = () => { MODE = 'local'; G = { phase: 'names' }; render(); };
+    app.querySelector('#local').onclick = () => adminOnly(() => { MODE = 'local'; G = { phase: 'names' }; render(); });
+    app.querySelector('#tour').onclick = () => adminOnly(() => { MODE = 'tour'; T = T || { phase: 'setup' }; render(); });
     app.querySelector('#online').onclick = () => { MODE = 'lobby'; message = { text: '', err: false }; render(); };
   }
 
@@ -701,8 +774,8 @@ p { margin: 0; line-height: 1.5; color: var(--muted); }
     app.querySelector('#back').onclick = () => { MODE = 'home'; G = null; render(); };
   }
 
-  function newLocalGame(first, cfg) {
-    G = { id: Date.now(), phase: 'secret', cfg, who: first, secrets: ['', ''], logs: [[], []], hints: [null, null], marks: [[], []], turn: first, first, winner: null, passNext: null };
+  function newLocalGame(first, cfg, names, tour) {
+    G = { id: Date.now(), phase: 'secret', cfg, who: first, names: (names || S.names).slice(0, 2), tour: tour === undefined ? null : tour, secrets: ['', ''], logs: [[], []], hints: [[], []], marks: [[], []], turn: first, first, winner: null, passNext: null };
     entry = ''; reveal = true; markMode = false; message = { text: '', err: false };
     render();
   }
@@ -725,6 +798,8 @@ p { margin: 0; line-height: 1.5; color: var(--muted); }
     const c = G.cfg;
     const i = mode === 'secret' ? G.who : G.turn;
     if (!Array.isArray(G.marks)) G.marks = [[], []];
+    G.hints = (G.hints || [null, null]).map(asHints);
+    G.cfg = cleanCfg(G.cfg);
     app.style.cssText = pc(i);
     const quit = `<button class="x" id="quit">יציאה</button>`;
     if (mode === 'secret') {
@@ -746,14 +821,15 @@ p { margin: 0; line-height: 1.5; color: var(--muted); }
       bindPad(c.n, c.rep, submitLocalGuess, true, G.marks[i]);
       const h = app.querySelector('#hint');
       if (h) h.onclick = () => {
-        const s = G.secrets[1 - i], p = Math.floor(Math.random() * s.length);
-        G.hints[i] = { p, d: s[p] };
+        G.hints[i].push(newHint(G.secrets[1 - i], G.hints[i]));
         message = { text: `💡 ${lname(i)} גילה/תה ספרה אחת`, err: false };
         render();
       };
       scrollLogs();
     }
-    app.querySelector('#quit').onclick = () => confirmQuit(() => { G = null; MODE = 'home'; render(); });
+    const inTour = G.tour !== null && G.tour !== undefined && T;
+    app.querySelector('#quit').onclick = () => confirmQuit(() => { G = null; MODE = inTour ? 'tour' : 'home'; render(); },
+      inTour ? 'חוזרים לטבלת הטורניר. המשחק הזה יתחיל מההתחלה.' : undefined);
   }
 
   function submitLocalSecret() {
@@ -788,6 +864,7 @@ p { margin: 0; line-height: 1.5; color: var(--muted); }
 
   function renderLocalWin() {
     const w = G.winner;
+    const inTour = Number.isInteger(G.tour) && !!T && T.phase === 'bracket';
     app.style.cssText = pc(w);
     app.innerHTML = `
       <div class="screen center win">
@@ -799,12 +876,91 @@ p { margin: 0; line-height: 1.5; color: var(--muted); }
           ${[0, 1].map(i => `<div style="${pc(i)}"><span class="label" style="color:var(--pc)">המספר של ${lname(i)}</span><span class="num">${G.secrets[i]}</span></div>`).join('')}
         </div>
         <div class="actions">
+          ${inTour ? `<button class="btn p${w + 1}" id="next">${G.tour === 2 ? '🏆 לטקס הזכייה' : 'המשך בטורניר'}</button>` : `
           <button class="btn p${w + 1}" id="again">משחק חוזר</button>
-          <button class="btn ghost" id="home">למסך הראשי</button>
+          <button class="btn ghost" id="home">למסך הראשי</button>`}
         </div>
       </div>`;
-    app.querySelector('#again').onclick = () => newLocalGame(1 - w, cleanCfg(CFG));   // loser starts
+    if (inTour) {
+      app.querySelector('#next').onclick = () => {
+        const m = T.m[G.tour];
+        m.w = w === 0 ? m.a : m.b;
+        if (G.tour < 2) { T.m[2][G.tour === 0 ? 'a' : 'b'] = m.w; }
+        else T.phase = 'done';
+        G = null; MODE = 'tour'; render();
+      };
+      return;
+    }
+    app.querySelector('#again').onclick = () => newLocalGame(1 - w, cleanCfg(CFG), G.names);   // loser starts
     app.querySelector('#home').onclick = () => { G = null; MODE = 'home'; render(); };
+  }
+
+  /* ================= TOURNAMENT (one phone, 4 players) ================= */
+  // m[0], m[1] = semi-finals, m[2] = final. a/b are indexes into T.players, w the winner.
+  function renderTourSetup() {
+    app.style.cssText = pc(0);
+    const prev = T.players || S.tourNames || ['', '', '', ''];
+    app.innerHTML = `${topHTML(0, '🏆 טורניר', '<button class="x" id="back">חזרה</button>')}
+      <div class="screen scroll">
+        <p>4 שחקנים, נוקאאוט: שני חצאי גמר, והמנצחים נפגשים בגמר. משחקים בטלפון אחד ומעבירים מיד ליד.</p>
+        <div class="panel">
+          <div class="names4">
+            ${[0, 1, 2, 3].map(i => `<div class="field"><label for="t${i}">שחקן ${i + 1}</label><input id="t${i}" type="text" maxlength="14" value="${esc(prev[i] || '')}" placeholder="שם"></div>`).join('')}
+          </div>
+          <label class="toggle" for="shuf"><span>הגרלת זוגות לחצאי הגמר</span><input id="shuf" type="checkbox" checked></label>
+          <p class="note">${cfgText(CFG)}</p>
+          <div class="msg" id="tmsg"></div>
+        </div>
+        <button class="btn" id="go">יוצאים לדרך</button>
+      </div>`;
+    app.querySelector('#back').onclick = () => { T = null; MODE = 'home'; render(); };
+    app.querySelector('#go').onclick = () => {
+      const names = [0, 1, 2, 3].map(i => app.querySelector('#t' + i).value.trim().slice(0, 14) || `שחקן ${i + 1}`);
+      if (new Set(names).size < 4) { const m = app.querySelector('#tmsg'); m.textContent = 'לכל שחקן צריך שם אחר'; m.className = 'msg err'; return; }
+      S.tourNames = names; saveLocal();
+      const order = [0, 1, 2, 3];
+      if (app.querySelector('#shuf').checked) for (let i = 3; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; }
+      T = { phase: 'bracket', id: Date.now(), cfg: cleanCfg(CFG), players: order.map(i => names[i]),
+        m: [{ a: 0, b: 1, w: null }, { a: 2, b: 3, w: null }, { a: null, b: null, w: null }] };
+      render();
+    };
+  }
+
+  function renderBracket() {
+    const P = i => i === null ? null : esc(T.players[i]);
+    const next = T.phase === 'done' ? -1 : T.m.findIndex(m => m.w === null);
+    const titles = ['חצי גמר 1', 'חצי גמר 2', 'גמר'];
+    const pl = (m, x) => {
+      const i = m[x];
+      if (i === null) return `<div class="pl tbd">${x === 'a' ? 'מנצח/ת חצי גמר 1' : 'מנצח/ת חצי גמר 2'}</div>`;
+      const st = m.w === null ? '' : (m.w === i ? 'won' : 'lost');
+      return `<div class="pl ${st}"><span>${P(i)}</span>${st === 'won' ? '<span>✓</span>' : ''}</div>`;
+    };
+    const card = (m, k) => `<div class="match ${k === 2 ? 'final' : ''}" ${k === next ? 'style="border:2px solid var(--p2)"' : ''}>
+        <span class="mt">${titles[k]}${k === next ? ' · עכשיו' : ''}</span>${pl(m, 'a')}${pl(m, 'b')}</div>`;
+    const champ = T.phase === 'done' ? T.m[2].w : null;
+    app.style.cssText = pc(1);
+    app.innerHTML = `${topHTML(0, '🏆 טורניר', '<button class="x" id="quit">יציאה</button>')}
+      <div class="screen scroll">
+        ${champ !== null ? `<div class="win" style="display:flex;flex-direction:column;gap:6px;text-align:center;align-items:center">
+            <div style="font-size:3rem" aria-hidden="true">🏆</div><p>אלוף/ת הטורניר</p><div class="who" style="--pc:var(--cow)">${P(champ)}</div></div>` : ''}
+        <div class="bracket">${T.m.map(card).join('')}</div>
+        <p class="note" style="text-align:center">${cfgText(T.cfg)}</p>
+        ${next >= 0 ? `<button class="btn p2" id="play">${next === 2 ? '🏆 לגמר' : 'למשחק'}: ${P(T.m[next].a)} נגד ${P(T.m[next].b)}</button>`
+                    : `<button class="btn" id="newt">טורניר חדש</button>`}
+      </div>`;
+    const pb = app.querySelector('#play');
+    if (pb) pb.onclick = () => {
+      const m = T.m[next];
+      MODE = 'local';
+      newLocalGame(0, cleanCfg(T.cfg), [T.players[m.a], T.players[m.b]], next);
+    };
+    const nb = app.querySelector('#newt');
+    if (nb) nb.onclick = () => adminOnly(() => { T = { phase: 'setup', players: T.players }; render(); });
+    app.querySelector('#quit').onclick = () => {
+      if (T.phase === 'done') { T = null; MODE = 'home'; return render(); }
+      confirmQuit(() => { T = null; MODE = 'home'; render(); }, 'הטורניר יימחק.');
+    };
   }
 
   /* ================= ONLINE ================= */
@@ -826,7 +982,7 @@ p { margin: 0; line-height: 1.5; color: var(--muted); }
   const newPid = () => Math.random().toString(36).slice(2, 10);
 
   function freshMe(role, nm, pid, cfg, gid, guestPid) {
-    return { app: 'cvc', v: 2, role, pid, name: nm, cfg, gid, ready: false, guesses: [], answers: [], reveal: null, guestPid: guestPid || null, hintReq: false, hint: null };
+    return { app: 'cvc', v: 2, role, pid, name: nm, cfg, gid, ready: false, guesses: [], answers: [], reveal: null, guestPid: guestPid || null, hintReq: 0, hints: [] };
   }
 
   function renderLobby() {
@@ -846,7 +1002,7 @@ p { margin: 0; line-height: 1.5; color: var(--muted); }
         </div>
         ${saved ? `<button class="btn" id="resume">חזרה למשחק <span class="num">${esc(saved.code)}</span></button>` : ''}
         <div class="panel">
-          <button class="btn p1" id="create">יצירת משחק חדש<small>${cfgText(CFG)}</small></button>
+          <button class="btn p1" id="create">${IS_OWNER ? '' : '🔒 '}יצירת משחק חדש<small>${IS_OWNER ? cfgText(CFG) : 'למנהלים בלבד'}</small></button>
           <div class="or">או</div>
           <div class="field">
             <label for="code">יש לי קוד (לשחק או לצפות)</label>
@@ -861,8 +1017,11 @@ p { margin: 0; line-height: 1.5; color: var(--muted); }
     if (!ROOM.ok()) { app.querySelector('#retrynet').onclick = () => location.reload(); return; }
     const nameOf = () => { S.myName = (app.querySelector('#myname').value.trim() || '').slice(0, 14); saveLocal(); return S.myName || 'שחקן'; };
     app.querySelector('#create').onclick = () => {
-      const code = String(Math.floor(Math.random() * 10000)).padStart(4, '0');
-      startOnline({ code, role: HOST, secret: '', me: freshMe(HOST, nameOf(), newPid(), cleanCfg(CFG), 0) });
+      const nm = nameOf();
+      adminOnly(() => {
+        const code = String(Math.floor(Math.random() * 10000)).padStart(4, '0');
+        startOnline({ code, role: HOST, secret: '', me: freshMe(HOST, nm, newPid(), cleanCfg(CFG), 0) });
+      });
     };
     app.querySelector('#join').onclick = () => {
       const code = app.querySelector('#code').value.replace(/\D/g, '');
@@ -927,7 +1086,8 @@ p { margin: 0; line-height: 1.5; color: var(--muted); }
     const cfg = o.cfg && typeof o.cfg === 'object' ? cleanCfg(o.cfg) : null;
     const n = cfg ? cfg.n : null;
     const okG = g => typeof g === 'string' && (g === 'x' || (/^\d{3,6}$/.test(g) && (!n || g.length === n)));
-    const h = o.hint;
+    const okH = h => h && isInt(h.p, 0, 5) && typeof h.d === 'string' && /^\d$/.test(h.d);
+    const hints = (Array.isArray(o.hints) ? o.hints : (o.hint ? [o.hint] : [])).filter(okH).slice(0, 5).map(h => ({ p: h.p, d: h.d }));
     return {
       role: o.role, pid: o.pid.slice(0, 16), cfg,
       name: (typeof o.name === 'string' && o.name.trim().slice(0, 14)) || 'שחקן',
@@ -937,8 +1097,8 @@ p { margin: 0; line-height: 1.5; color: var(--muted); }
       answers: Array.isArray(o.answers) ? o.answers.filter(a => typeof a === 'string' && /^(\d\d|--)$/.test(a)).slice(0, 300) : [],
       reveal: typeof o.reveal === 'string' && /^\d{3,6}$/.test(o.reveal) ? o.reveal : null,
       guestPid: typeof o.guestPid === 'string' ? o.guestPid.slice(0, 16) : null,
-      hintReq: !!o.hintReq,
-      hint: h && isInt(h.p, 0, 5) && typeof h.d === 'string' && /^\d$/.test(h.d) ? { p: h.p, d: h.d } : null,
+      hintReq: isInt(o.hintReq, 0, 5) ? o.hintReq : (o.hintReq === true ? 1 : 0),
+      hints,
     };
   }
 
@@ -981,11 +1141,9 @@ p { margin: 0; line-height: 1.5; color: var(--muted); }
         else { const s = score(O.secret, g); me.answers.push(`${s.bulls}${s.cows}`); }
         changed = true;
       }
-      if (op.hintReq && !me.hint) {
-        const p = Math.floor(Math.random() * O.secret.length);
-        me.hint = { p, d: O.secret[p] };
-        changed = true;
-      }
+      if (!Array.isArray(me.hints)) me.hints = [];
+      const wantH = Math.min(op.hintReq, cleanCfg(me.cfg).hintCount, O.secret.length - 1);
+      while (me.hints.length < wantH) { me.hints.push(newHint(O.secret, me.hints)); changed = true; }
       if (winnerOf(pair()) !== null && !me.reveal) { me.reveal = O.secret; changed = true; }
     }
     if (changed) push();
@@ -1084,7 +1242,7 @@ p { margin: 0; line-height: 1.5; color: var(--muted); }
       bindPad(c.n, c.rep, () => { O.secret = entry; me.ready = true; entry = ''; reveal = true; push(); render(); }, true);
       app.querySelector('#eye').onclick = () => { reveal = !reveal; render(); };
     } else if (ph === 'play') {
-      const pr = pair(), c = me.cfg, turnRole = turnOf(pr), mine = turnRole === O.role;
+      const pr = pair(), c = cleanCfg(me.cfg), turnRole = turnOf(pr), mine = turnRole === O.role;
       const key = `O${O.code}:${me.gid}:${pr[0].guesses.length}:${pr[1].guesses.length}`;
       setTimer(key, c.timer, mine ? onlineTimeout : null);
       if (!mine) message = { text: `מחכים ש${pname(op)} ינחש…`, err: false };
@@ -1092,11 +1250,11 @@ p { margin: 0; line-height: 1.5; color: var(--muted); }
       app.innerHTML = `${top(mine ? '<b>תורך</b> לנחש' : `התור של <b style="color:var(--p${op.role + 1})">${pname(op)}</b>`, c.timer)}
         <div class="mine-strip"><span>המספר הסודי שלך</span><span class="mini num">${O.secret.split('').map(d => `<b>${esc(d)}</b>`).join('')}</span></div>
         <div class="boards">${onlineBoards(pr, turnRole)}</div>
-        ${toolsHTML(hintBarHTML(c, op.hint, me.guesses.length, me.hintReq && !op.hint, true))}
+        ${toolsHTML(hintBarHTML(c, op.hints, me.guesses.length, (me.hintReq || 0) > op.hints.length, true))}
         ${slotsHTML(c.n, false)}${padHTML(c.n, c.rep, 'נחש', mine, O.marks)}`;
       bindPad(c.n, c.rep, () => { me.guesses.push(entry); entry = ''; message = { text: '', err: false }; push(); render(); }, mine, O.marks, saveOnline);
       const h = app.querySelector('#hint');
-      if (h) h.onclick = () => { me.hintReq = true; push(); render(); };
+      if (h) h.onclick = () => { me.hintReq = op.hints.length + 1; push(); render(); };
       scrollLogs();
     } else if (ph === 'over') {
       renderOver(top, true);
@@ -1108,8 +1266,8 @@ p { margin: 0; line-height: 1.5; color: var(--muted); }
   function onlineBoards(pr, turnRole) {
     const [h, g] = pr, n = cfgOf(pr).n;
     const label = x => `${pname(x)}${O.role !== SPEC && x === O.me ? ' (את/ה)' : ''}`;
-    return boardHTML(HOST, label(h), rowsOf(h.guesses, g.answers), turnRole === HOST, true, g.hint, n)
-         + boardHTML(GUEST, label(g), rowsOf(g.guesses, h.answers), turnRole === GUEST, true, h.hint, n);
+    return boardHTML(HOST, label(h), rowsOf(h.guesses, g.answers), turnRole === HOST, true, g.hints, n)
+         + boardHTML(GUEST, label(g), rowsOf(g.guesses, h.answers), turnRole === GUEST, true, h.hints, n);
   }
 
   function onlineTimeout() {
@@ -1173,6 +1331,8 @@ p { margin: 0; line-height: 1.5; color: var(--muted); }
   try { savedGame = JSON.parse(ls.get('cvc-game')); } catch (e) {}
   if (savedGame && savedGame.phase && savedGame.id && savedGame.cfg) {
     G = savedGame; MODE = 'local'; render();
+  } else if (T && T.phase !== 'setup') {
+    MODE = 'tour'; render();
   } else if (loadOnline()) {
     if (ROOM.ok()) resumeOnline(); else { MODE = 'lobby'; render(); }
   } else render();
