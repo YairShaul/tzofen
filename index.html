@@ -262,6 +262,7 @@ p { margin: 0; line-height: 1.5; color: var(--muted); }
 .match .pl.won { color: var(--bull); }
 .match .pl.lost { color: var(--muted); text-decoration: line-through; }
 .match .pl.tbd { color: var(--muted); font-weight: 500; }
+.tnote { padding: 7px 12px; border-radius: 12px; background: var(--hint-soft); color: var(--hint); font-weight: 700; font-size: .9rem; text-align: center; }
 .names4 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 
 .eye { background: none; border: none; color: var(--muted); font-weight: 700; font-size: .9rem; align-self: center; padding: 6px 10px; }
@@ -325,9 +326,11 @@ p { margin: 0; line-height: 1.5; color: var(--muted); }
   // stored here, only its SHA-256 fingerprint.
   const OWNER_HASH = 'e8d389b9847a1dc577208ccc55317d2d56c15d5d77930d0b4acbcdd52d4f70d1';
   const ls = {
-    get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
-    set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} },
-    del(k) { try { localStorage.removeItem(k); } catch (e) {} },
+    // ?dev=N gives a separate storage per tab/frame, to test several "phones" on one computer
+    ns: (() => { try { const d = new URLSearchParams(location.search).get('dev'); return d ? `dev${d.replace(/\W/g, '').slice(0, 8)}:` : ''; } catch (e) { return ''; } })(),
+    get(k) { try { return localStorage.getItem(this.ns + k); } catch (e) { return null; } },
+    set(k, v) { try { localStorage.setItem(this.ns + k, v); } catch (e) {} },
+    del(k) { try { localStorage.removeItem(this.ns + k); } catch (e) {} },
   };
   let IS_OWNER = ls.get('cvc-owner') === OWNER_HASH;
   let CFG = cleanCfg(IS_OWNER ? (() => { try { return JSON.parse(ls.get('cvc-cfg')); } catch (e) { return null; } })() : DEF);
@@ -472,10 +475,10 @@ p { margin: 0; line-height: 1.5; color: var(--muted); }
 
   function loadLocal() {
     const d = { names: ['שחקן 1', 'שחקן 2'], myName: '' };
-    try { const s = JSON.parse(localStorage.getItem('cvc-local')); if (s && Array.isArray(s.names)) return Object.assign(d, s); } catch (e) {}
+    try { const s = JSON.parse(ls.get('cvc-local')); if (s && Array.isArray(s.names)) return Object.assign(d, s); } catch (e) {}
     return d;
   }
-  function saveLocal() { try { localStorage.setItem('cvc-local', JSON.stringify(S)); } catch (e) {} }
+  function saveLocal() { ls.set('cvc-local', JSON.stringify(S)); }
 
   function score(secret, guess) {
     let bulls = 0; const cs = {}, cg = {};
@@ -646,6 +649,7 @@ p { margin: 0; line-height: 1.5; color: var(--muted); }
   function route() {
     if (MODE === 'lobby') return renderLobby();
     if (MODE === 'online' && O) return renderOnline();
+    if (MODE === 'tonline' && TO) return renderTOnline();
     if (MODE === 'tour' && T) return T.phase === 'setup' ? renderTourSetup() : renderBracket();
     if (MODE === 'local' && G) {
       if (G.phase === 'names') return renderLocalNames();
@@ -902,7 +906,13 @@ p { margin: 0; line-height: 1.5; color: var(--muted); }
     const prev = T.players || S.tourNames || ['', '', '', ''];
     app.innerHTML = `${topHTML(0, '🏆 טורניר', '<button class="x" id="back">חזרה</button>')}
       <div class="screen scroll">
-        <p>4 שחקנים, נוקאאוט: שני חצאי גמר, והמנצחים נפגשים בגמר. משחקים בטלפון אחד ומעבירים מיד ליד.</p>
+        <p>4 שחקנים, נוקאאוט: שני חצאי גמר, והמנצחים נפגשים בגמר.</p>
+        <div class="panel">
+          <span class="label">🌐 אונליין: כל שחקן בטלפון שלו</span>
+          <div class="field"><label for="tname">השם שלך</label><input id="tname" type="text" maxlength="14" value="${esc(S.myName || '')}" placeholder="איך יקראו לך בטורניר"></div>
+          <button class="btn p2" id="tonline">פתיחת טורניר אונליין<small>החברים נכנסים עם קוד</small></button>
+        </div>
+        <div class="or">או בטלפון אחד, מעבירים מיד ליד</div>
         <div class="panel">
           <div class="names4">
             ${[0, 1, 2, 3].map(i => `<div class="field"><label for="t${i}">שחקן ${i + 1}</label><input id="t${i}" type="text" maxlength="14" value="${esc(prev[i] || '')}" placeholder="שם"></div>`).join('')}
@@ -914,6 +924,11 @@ p { margin: 0; line-height: 1.5; color: var(--muted); }
         <button class="btn" id="go">יוצאים לדרך</button>
       </div>`;
     app.querySelector('#back').onclick = () => { T = null; MODE = 'home'; render(); };
+    app.querySelector('#tonline').onclick = () => {
+      S.myName = app.querySelector('#tname').value.trim().slice(0, 14); saveLocal();
+      if (!ROOM.ok()) { const m = app.querySelector('#tmsg'); m.textContent = 'אין חיבור לאינטרנט'; m.className = 'msg err'; return; }
+      T = null; createTour(S.myName || 'מארגן');
+    };
     app.querySelector('#go').onclick = () => {
       const names = [0, 1, 2, 3].map(i => app.querySelector('#t' + i).value.trim().slice(0, 14) || `שחקן ${i + 1}`);
       if (new Set(names).size < 4) { const m = app.querySelector('#tmsg'); m.textContent = 'לכל שחקן צריך שם אחר'; m.className = 'msg err'; return; }
@@ -971,14 +986,14 @@ p { margin: 0; line-height: 1.5; color: var(--muted); }
   const HOST = 0, GUEST = 1, SPEC = 2;
 
   function loadOnline() {
-    try { const s = JSON.parse(localStorage.getItem('cvc-online')); if (s && /^\d{4}$/.test(s.code) && s.me && s.me.pid) return s; } catch (e) {}
+    try { const s = JSON.parse(ls.get('cvc-online')); if (s && /^\d{4}$/.test(s.code) && s.me && s.me.pid) return s; } catch (e) {}
     return null;
   }
   function saveOnline() {
     if (!O) return;
-    try { localStorage.setItem('cvc-online', JSON.stringify({ code: O.code, role: O.role, secret: O.secret, me: O.me, marks: O.marks })); } catch (e) {}
+    ls.set('cvc-online', JSON.stringify({ code: O.code, role: O.role, secret: O.secret, me: O.me, marks: O.marks }));
   }
-  function clearOnline() { try { localStorage.removeItem('cvc-online'); } catch (e) {} }
+  function clearOnline() { ls.del('cvc-online'); }
   const newPid = () => Math.random().toString(36).slice(2, 10);
 
   function freshMe(role, nm, pid, cfg, gid, guestPid) {
@@ -1104,6 +1119,14 @@ p { margin: 0; line-height: 1.5; color: var(--muted); }
 
   function onPeers(peers) {
     if (!O) return;
+    // The code belongs to an online tournament: switch over to it
+    if (O.role !== HOST && peers.some(p => p.presence && p.presence.app === 'cvt' && p.presence.host)) {
+      const code = O.code, nm = O.me.name, r = O.r;
+      O = null; clearOnline();
+      try { if (r) r.leave(); } catch (e) {}
+      joinTour(code, nm);
+      return;
+    }
     const all = peers.filter(p => !p.sameTab && p.kind === 'viewer').map(cleanPeer).filter(Boolean);
     const before = JSON.stringify([O.opp, O.hostP, O.guestP, O.specs]);
     const me = O.me;
@@ -1323,6 +1346,404 @@ p { margin: 0; line-height: 1.5; color: var(--muted); }
     push(); render();
   }
 
+  /* ================= ONLINE TOURNAMENT =================
+     The organizer's phone is the hub and keeps the bracket (tour). Seats 0-3
+     are the players, in join order (optionally shuffled at start).
+     m[0], m[1] = semi-finals, m[2] = final; a/b/w are seat numbers.
+     mode 'seq': semi-finals one after the other. 'par': both at once.
+     Each player keeps their own secret; presence carries g = the state of the
+     match they are in (key = "<tour id>:<match>"), the same way as a 2-player game. */
+  let TO = null;
+  const TKEY = 'cvc-tonl';
+  const randCode = () => String(Math.floor(Math.random() * 10000)).padStart(4, '0');
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  function saveTO() { if (TO) ls.set(TKEY, JSON.stringify({ code: TO.code, host: TO.host, pid: TO.pid, secret: TO.secret, marks: TO.marks, me: TO.me })); }
+  function loadTO() { try { const s = JSON.parse(ls.get(TKEY)); if (s && /^\d{4}$/.test(s.code) && s.me && s.pid) return s; } catch (e) {} return null; }
+  const tFreshG = key => ({ key, ready: false, guesses: [], answers: [], hints: [], hintReq: 0, reveal: null });
+  const tKey = (t, k) => `${t.id}:${k}`;
+
+  function createTour(name) {
+    const pid = newPid();
+    const tour = { id: Date.now() % 1e9, mode: 'seq', cfg: cleanCfg(CFG), seats: [pid], names: [name], started: false, ended: false,
+      m: [{ a: 0, b: 1, w: null, ff: false }, { a: 2, b: 3, w: null, ff: false }, { a: null, b: null, w: null, ff: false }], out: [] };
+    startTour({ code: randCode(), host: true, pid, secret: '', marks: [], me: { app: 'cvt', v: 1, pid, name, host: true, quit: false, tour, g: tFreshG('') } });
+  }
+  function joinTour(code, name) {
+    const pid = newPid();
+    startTour({ code, host: false, pid, secret: '', marks: [], me: { app: 'cvt', v: 1, pid, name, host: false, quit: false, g: tFreshG('') } });
+  }
+
+  async function startTour(s) {
+    if (TO && TO.r) { try { TO.r.leave(); } catch (e) {} }
+    MODE = 'tonline';
+    TO = { code: s.code, host: !!s.host, pid: s.pid, secret: s.secret || '', marks: Array.isArray(s.marks) ? s.marks.filter(d => /^\d$/.test(d)) : [],
+      me: s.me, r: null, status: 'connecting', peers: [], hostP: null, watch: null, note: '', shuf: true };
+    entry = ''; reveal = true; markMode = false; message = { text: '', err: false };
+    saveTO(); render();
+    const fresh = TO.host && !TO.me.tour.started;
+    try {
+      let r = null;
+      for (let attempt = 0; !r; attempt++) {
+        try { r = await openRoom(TO.code, TO.host); }
+        catch (e) {
+          if (!TO || TO.code !== s.code) return;
+          if (e && e.code === 'taken' && fresh && attempt < 5) { TO.code = s.code = randCode(); saveTO(); render(); }
+          else if (e && e.code === 'taken' && attempt < 25) await sleep(3000);
+          else throw e;
+        }
+      }
+      if (!TO || TO.code !== s.code) { r.leave(); return; }
+      TO.r = r; TO.status = 'ok';
+      r.onPeers(ch => { if (TO && TO.r === r) { TO.peers = ch.peers.filter(p => !p.sameTab).map(cleanT).filter(Boolean); tSync(); } });
+      tPush(); render();
+    } catch (e) {
+      if (TO) { TO.status = 'error'; render(); }
+    }
+  }
+  function tPush() {
+    if (!TO) return;
+    saveTO();
+    if (TO.r) TO.r.presence(JSON.parse(JSON.stringify(TO.me))).catch(() => {});
+  }
+
+  function cleanTourObj(t) {
+    if (!t || typeof t !== 'object') return null;
+    const seat = x => (x === null || x === undefined) ? null : (isInt(x, 0, 3) ? x : null);
+    return {
+      id: isInt(t.id, 0, 1e9) ? t.id : 0, mode: t.mode === 'par' ? 'par' : 'seq', cfg: cleanCfg(t.cfg),
+      seats: Array.isArray(t.seats) ? t.seats.filter(x => typeof x === 'string').map(x => x.slice(0, 16)).slice(0, 4) : [],
+      names: Array.isArray(t.names) ? t.names.slice(0, 4).map(n => (typeof n === 'string' && n.slice(0, 14)) || 'שחקן') : [],
+      started: !!t.started, ended: !!t.ended,
+      m: [0, 1, 2].map(k => { const x = (Array.isArray(t.m) && t.m[k]) || {}; return { a: seat(x.a), b: seat(x.b), w: seat(x.w), ff: !!x.ff }; }),
+      out: Array.isArray(t.out) ? t.out.filter(x => isInt(x, 0, 3)) : [],
+    };
+  }
+  function cleanT(p) {
+    const o = p.presence || {};
+    if (o.app !== 'cvt' || typeof o.pid !== 'string') return null;
+    const g = o.g && typeof o.g === 'object' ? o.g : {};
+    const okG = x => typeof x === 'string' && (x === 'x' || /^\d{3,6}$/.test(x));
+    const okH = h => h && isInt(h.p, 0, 5) && typeof h.d === 'string' && /^\d$/.test(h.d);
+    return {
+      pid: o.pid.slice(0, 16), name: (typeof o.name === 'string' && o.name.trim().slice(0, 14)) || 'שחקן',
+      host: !!o.host, quit: !!o.quit, tour: o.host ? cleanTourObj(o.tour) : null,
+      g: {
+        key: typeof g.key === 'string' ? g.key.slice(0, 30) : '', ready: !!g.ready,
+        guesses: Array.isArray(g.guesses) ? g.guesses.filter(okG).slice(0, 300) : [],
+        answers: Array.isArray(g.answers) ? g.answers.filter(a => typeof a === 'string' && /^(\d\d|--)$/.test(a)).slice(0, 300) : [],
+        hints: Array.isArray(g.hints) ? g.hints.filter(okH).slice(0, 5).map(h => ({ p: h.p, d: h.d })) : [],
+        hintReq: isInt(g.hintReq, 0, 5) ? g.hintReq : 0,
+        reveal: typeof g.reveal === 'string' && /^\d{3,6}$/.test(g.reveal) ? g.reveal : null,
+      },
+    };
+  }
+
+  function tTour() { return TO.host ? TO.me.tour : (TO.hostP && TO.hostP.tour) || null; }
+  function tGet(seat) {
+    const t = tTour();
+    if (!t || seat === null || seat < 0) return null;
+    const pid = t.seats[seat];
+    if (!pid) return null;
+    if (pid === TO.pid) return { pid, name: TO.me.name, g: TO.me.g };
+    return TO.peers.find(x => x.pid === pid) || null;
+  }
+  const tn = s => { const t = TO && tTour(); return esc((t && t.names[s]) || 'שחקן'); };
+  // Matches being played right now
+  function tActive(t) {
+    if (!t || !t.started || t.ended || t.m[2].w !== null) return [];
+    const ready = k => t.m[k].a !== null && t.m[k].b !== null && t.m[k].w === null;
+    if (t.mode === 'par') return [0, 1, 2].filter(ready);
+    const k = [0, 1, 2].find(ready);
+    return k === undefined ? [] : [k];
+  }
+  function tMyMatch(t, seat) {
+    if (seat < 0) return null;
+    const k = tActive(t).find(i => t.m[i].a === seat || t.m[i].b === seat);
+    return k === undefined ? null : k;
+  }
+  function tWinner(t, k) {
+    const m = t.m[k];
+    if (t.out.includes(m.a)) return { w: m.b, ff: true };
+    if (t.out.includes(m.b)) return { w: m.a, ff: true };
+    const A = tGet(m.a), B = tGet(m.b), key = tKey(t, k);
+    if (!A || !B || A.g.key !== key || B.g.key !== key) return null;
+    const full = a => a !== '--' && +a[0] === t.cfg.n;
+    if (B.g.answers.some(full)) return { w: m.a };
+    if (A.g.answers.some(full)) return { w: m.b };
+    return null;
+  }
+  function tResolve(t) {
+    let ch = false;
+    for (let guard = 0; guard < 4; guard++) {
+      let any = false;
+      for (const k of tActive(t)) {
+        const r = tWinner(t, k);
+        if (!r) continue;
+        t.m[k].w = r.w; t.m[k].ff = !!r.ff; any = ch = true;
+        if (k < 2) t.m[2][k === 0 ? 'a' : 'b'] = r.w;
+      }
+      if (!any) break;
+    }
+    return ch;
+  }
+
+  function tSync() {
+    if (!TO) return;
+    const me = TO.me, all = TO.peers;
+    let changed = false;
+    TO.hostP = TO.host ? null : (all.find(x => x.host) || null);
+    if (TO.host) {
+      const t = me.tour;
+      if (!t.started) {
+        // Fill the 4 seats in join order; free a seat if that player leaves before the start
+        const here = new Set(all.filter(x => !x.quit).map(x => x.pid));
+        const keep = t.seats.filter(pid => pid === TO.pid || here.has(pid));
+        if (keep.length !== t.seats.length) { t.seats = keep; changed = true; }
+        for (const x of all) {
+          if (t.seats.length >= 4) break;
+          if (!x.quit && !x.host && !t.seats.includes(x.pid)) { t.seats.push(x.pid); changed = true; }
+        }
+        const names = t.seats.map(pid => pid === TO.pid ? me.name : ((all.find(x => x.pid === pid) || {}).name || 'שחקן'));
+        if (JSON.stringify(names) !== JSON.stringify(t.names)) { t.names = names; changed = true; }
+      } else {
+        for (const x of all) {
+          const si = t.seats.indexOf(x.pid);
+          if (si >= 0 && x.quit && !t.out.includes(si)) { t.out.push(si); changed = true; }
+        }
+      }
+    }
+    const t = tTour();
+    const duties = () => {
+      if (!t || !t.started || t.ended) return;
+      const seat = t.seats.indexOf(TO.pid), k = tMyMatch(t, seat);
+      if (k !== null) {
+        const key = tKey(t, k);
+        if (me.g.key !== key) {
+          me.g = tFreshG(key); TO.secret = ''; TO.marks = []; entry = ''; reveal = true; markMode = false; message = { text: '', err: false };
+          changed = true;
+        }
+        const m = t.m[k], op = tGet(m.a === seat ? m.b : m.a);
+        if (op && op.g.key === key && me.g.ready && TO.secret) {
+          while (me.g.answers.length < op.g.guesses.length) {
+            const g = op.g.guesses[me.g.answers.length];
+            if (g === 'x') me.g.answers.push('--');
+            else { const s = score(TO.secret, g); me.g.answers.push(`${s.bulls}${s.cows}`); }
+            changed = true;
+          }
+          const wantH = Math.min(op.g.hintReq, t.cfg.hintCount, TO.secret.length - 1);
+          while (me.g.hints.length < wantH) { me.g.hints.push(newHint(TO.secret, me.g.hints)); changed = true; }
+        }
+      }
+      // Once my match is decided, show my secret to everyone
+      const [gid, gk] = me.g.key.split(':');
+      if (TO.secret && !me.g.reveal && gid === String(t.id) && t.m[+gk] && t.m[+gk].w !== null) { me.g.reveal = TO.secret; changed = true; }
+    };
+    duties();
+    if (TO.host && t && t.started && !t.ended && tResolve(t)) { changed = true; duties(); }
+    if (t && t.started) {
+      // Announce a match that just ended
+      const ws = t.m.map(x => x.w).join(',');
+      if (TO.prevWs !== undefined && TO.prevWs !== ws) {
+        const before = TO.prevWs.split(',');
+        const k2 = [2, 1, 0].find(i => t.m[i].w !== null && before[i] === '');
+        if (k2 !== undefined) {
+          const mm = t.m[k2], loser = mm.w === mm.a ? mm.b : mm.a;
+          TO.note = `${k2 === 2 ? '🏆' : '✔'} ${k2 === 2 ? 'גמר' : `חצי גמר ${k2 + 1}`}: ${tn(mm.w)} ניצח/ה את ${tn(loser)}${mm.ff ? ' (פרישה)' : ''}`;
+        }
+      }
+      TO.prevWs = ws;
+    }
+    if (changed) tPush();
+    render();
+  }
+
+  function tLeave() {
+    if (!TO) return;
+    const r = TO.r;
+    if (TO.host) TO.me.tour.ended = true; else TO.me.quit = true;
+    tPush();
+    ls.del(TKEY); TO = null; MODE = 'home'; render();
+    setTimeout(() => { try { if (r) r.leave(); } catch (e) {} }, 800);
+  }
+  function tTimeout() {
+    if (!TO) return;
+    TO.me.g.guesses.push('x'); entry = '';
+    message = { text: '⏱ נגמר הזמן. התור עבר.', err: true };
+    tPush(); render();
+  }
+
+  function tBracketHTML(t) {
+    const act = tActive(t);
+    const titles = ['חצי גמר 1', 'חצי גמר 2', 'גמר'];
+    const pl = (m, x) => {
+      const i = m[x];
+      if (i === null) return `<div class="pl tbd">${x === 'a' ? 'מנצח/ת חצי גמר 1' : 'מנצח/ת חצי גמר 2'}</div>`;
+      const st = m.w === null ? '' : (m.w === i ? 'won' : 'lost');
+      return `<div class="pl ${st}"><span>${tn(i)}${t.seats[i] === TO.pid ? ' (את/ה)' : ''}</span>${st === 'won' ? '<span>✓</span>' : ''}</div>`;
+    };
+    return `<div class="bracket">${t.m.map((m, k) => `<div class="match ${k === 2 ? 'final' : ''}" ${act.includes(k) ? 'style="border:2px solid var(--p2)"' : ''}>
+      <span class="mt">${titles[k]}${act.includes(k) ? ' · משחקים עכשיו' : ''}</span>${pl(m, 'a')}${pl(m, 'b')}</div>`).join('')}</div>`;
+  }
+  function showSheet(inner) {
+    const el = document.createElement('div');
+    el.className = 'sheet'; el.dir = 'rtl';
+    el.innerHTML = `<div class="panel">${inner}<button class="btn" id="ok">סגירה</button></div>`;
+    document.body.appendChild(el);
+    el.querySelector('#ok').onclick = () => el.remove();
+    el.onclick = e => { if (e.target === el) el.remove(); };
+  }
+
+  function renderTOnline() {
+    const t = tTour(), me = TO.me;
+    const seat = t ? t.seats.indexOf(TO.pid) : -1;
+    const ends = `<span class="code-chip">קוד <span class="num">${esc(TO.code)}</span></span>${t && t.started ? '<button class="x" id="tbl">טבלה</button>' : ''}<button class="x" id="quit">יציאה</button>`;
+    const top = (title, timer) => topHTML(timer || 0, title, ends);
+    const wait = (title, text, extra) => `${top(title)}<div class="screen center" style="align-items:center;text-align:center">${extra || ''}<div class="spinner"></div><p>${text}</p></div>`;
+    const note = TO.note ? `<div class="tnote">${TO.note}</div>` : '';
+    app.style.cssText = pc(1);
+
+    if (TO.status === 'connecting') app.innerHTML = wait('🏆 טורניר אונליין', 'מתחבר…');
+    else if (TO.status === 'error') {
+      app.innerHTML = `${top('🏆 טורניר אונליין')}<div class="screen center"><div class="panel"><h2>החיבור נותק</h2><p class="note">לא הצלחנו להתחבר. אפשר לנסות שוב.</p><button class="btn" id="retry">ניסיון חוזר</button></div></div>`;
+      app.querySelector('#retry').onclick = () => startTour({ code: TO.code, host: TO.host, pid: TO.pid, secret: TO.secret, marks: TO.marks, me: TO.me });
+    }
+    else if (!t) app.innerHTML = wait('🏆 טורניר אונליין', `מחכים למארגן הטורניר (קוד ${esc(TO.code)})…`);
+    else if (t.ended) {
+      app.innerHTML = `${top('🏆 טורניר אונליין')}<div class="screen center"><div class="panel"><h2>הטורניר הסתיים</h2><p class="note">המארגן סגר את הטורניר.</p><button class="btn" id="bye">למסך הראשי</button></div></div>`;
+      app.querySelector('#bye').onclick = tLeave;
+    }
+    else if (!t.started) renderTLobby(t, seat, top);
+    else if (t.m[2].w !== null) {
+      const w = t.m[2].w;
+      app.style.cssText = `--pc: var(--cow);`;
+      app.innerHTML = `${top('🏆 טורניר אונליין')}<div class="screen scroll">
+        <div class="win" style="display:flex;flex-direction:column;gap:6px;text-align:center;align-items:center">
+          <div style="font-size:3rem" aria-hidden="true">🏆</div><p>${w === seat ? 'זכית בטורניר!' : 'אלוף/ת הטורניר'}</p><div class="who">${tn(w)}</div></div>
+        ${tBracketHTML(t)}
+        <button class="btn" id="bye">${TO.host ? 'סגירת הטורניר' : 'למסך הראשי'}</button></div>`;
+      app.querySelector('#bye').onclick = tLeave;
+    }
+    else {
+      const k = tMyMatch(t, seat);
+      if (k !== null) renderTMatch(t, k, seat, top, wait, note);
+      else renderTWatch(t, seat, top, wait, note);
+    }
+    const q = app.querySelector('#quit');
+    if (q) q.onclick = () => confirmQuit(tLeave, TO.host
+      ? 'את/ה המארגן/ת: היציאה תסגור את הטורניר לכולם.'
+      : (t && t.started && seat >= 0 && t.m.some(m => m.w === null && (m.a === seat || m.b === seat)) ? 'תפסיד/י בפרישה במשחק שלך בטורניר.' : 'אפשר לחזור לצפות עם אותו קוד.'));
+    const tb = app.querySelector('#tbl');
+    if (tb) tb.onclick = () => showSheet(`<h2>טבלת הטורניר</h2>${tBracketHTML(t)}`);
+  }
+
+  function renderTLobby(t, seat, top) {
+    const slots = [0, 1, 2, 3].map(i => {
+      const pid = t.seats[i];
+      return `<div class="pl ${pid ? '' : 'tbd'}"><span>${pid ? tn(i) : 'מחכים לשחקן…'}</span>${pid === TO.pid ? '<span>את/ה</span>' : ''}</div>`;
+    }).join('');
+    const specs = TO.peers.filter(x => !x.host && !x.quit && !t.seats.includes(x.pid)).length;
+    const modeName = m => m === 'par' ? 'שני חצאי הגמר במקביל' : 'חצאי גמר אחד אחרי השני';
+    const hostPart = TO.host ? `
+        <div class="panel">
+          <div class="field"><span class="label">איך משחקים את חצאי הגמר</span>
+            <div class="seg" role="group"><button type="button" data-mode="seq" aria-pressed="${t.mode === 'seq'}">אחד אחרי השני</button><button type="button" data-mode="par" aria-pressed="${t.mode === 'par'}">במקביל</button></div></div>
+          <p class="note">${t.mode === 'par' ? 'כל 4 השחקנים משחקים באותו זמן. מי שמסיים צופה במשחק השני. בגמר, השאר צופים.' : 'בכל פעם 2 שחקנים משחקים וכל השאר צופים.'}</p>
+          <label class="toggle" for="tshuf"><span>הגרלת זוגות</span><input id="tshuf" type="checkbox" ${TO.shuf ? 'checked' : ''}></label>
+          <button class="btn p1" id="tstart" ${t.seats.length < 4 ? 'disabled' : ''}>${t.seats.length < 4 ? `מחכים ל-${4 - t.seats.length} שחקנים` : 'מתחילים את הטורניר'}</button>
+        </div>` : `<p class="note" style="text-align:center">${seat >= 0 ? 'מחכים שהמארגן יתחיל את הטורניר…' : 'הטורניר מלא. תוכל/י לצפות במשחקים.'}</p>`;
+    app.innerHTML = `${top('🏆 טורניר אונליין')}<div class="screen scroll">
+        <div style="text-align:center"><p>קוד הטורניר לשליחה לחברים</p><div class="big-code" style="font-size:2.6rem">${esc(TO.code)}</div></div>
+        <div class="match">${slots}${specs ? `<span class="mt">👁 ${specs} צופים</span>` : ''}</div>
+        <p class="note">${cfgText(t.cfg)} · ${modeName(t.mode)}</p>
+        ${hostPart}
+      </div>`;
+    if (!TO.host) return;
+    app.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => { t.mode = b.dataset.mode; tPush(); render(); });
+    app.querySelector('#tshuf').onchange = e => { TO.shuf = e.target.checked; };
+    app.querySelector('#tstart').onclick = () => {
+      if (t.seats.length < 4) return;
+      if (TO.shuf) {
+        const order = [0, 1, 2, 3];
+        for (let i = 3; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; }
+        t.seats = order.map(i => t.seats[i]); t.names = order.map(i => t.names[i]);
+      }
+      t.started = true;
+      TO.prevWs = t.m.map(x => x.w).join(',');
+      tSync();
+    };
+  }
+
+  function tMatchBoards(t, k, turn, mySeat) {
+    const m = t.m[k], A = tGet(m.a), B = tGet(m.b), n = t.cfg.n;
+    const lab = s => `${tn(s)}${s === mySeat ? ' (את/ה)' : ''}`;
+    return boardHTML(0, lab(m.a), rowsOf(A.g.guesses, B.g.answers), turn === 0, true, B.g.hints, n)
+         + boardHTML(1, lab(m.b), rowsOf(B.g.guesses, A.g.answers), turn === 1, true, A.g.hints, n);
+  }
+  const tTitle = k => k === 2 ? '🏆 גמר' : `חצי גמר ${k + 1}`;
+
+  function renderTMatch(t, k, seat, top, wait, note) {
+    const m = t.m[k], key = tKey(t, k), side = m.a === seat ? 0 : 1, oppSeat = side === 0 ? m.b : m.a;
+    const op = tGet(oppSeat), c = t.cfg, me = TO.me;
+    app.style.cssText = pc(side);
+    if (!me.g.ready) {
+      app.innerHTML = `${top(`${tTitle(k)}: <b>בחר/י מספר סודי</b>`)}${note}
+        <div class="screen center" style="gap:10px">
+          <p style="text-align:center">נגד <b>${tn(oppSeat)}</b>. ${cfgText(c)}.</p>
+          <button class="eye" id="eye">${reveal ? 'הסתר מספר' : 'הצג מספר'}</button>
+        </div>
+        ${slotsHTML(c.n, !reveal)}${padHTML(c.n, c.rep, 'אישור', true)}`;
+      bindPad(c.n, c.rep, () => { TO.secret = entry; me.g.ready = true; entry = ''; tPush(); tSync(); }, true);
+      app.querySelector('#eye').onclick = () => { reveal = !reveal; render(); };
+      return;
+    }
+    if (!op || op.g.key !== key || !op.g.ready) {
+      app.innerHTML = wait(tTitle(k), op ? `מחכים ש<b>${tn(oppSeat)}</b> יבחר מספר סודי…` : `<b>${tn(oppSeat)}</b> לא מחובר/ת כרגע. מחכים שיחזור…`, note);
+      return;
+    }
+    if (tWinner(t, k)) { app.innerHTML = wait(tTitle(k), 'המשחק הוכרע, מעדכנים את הטבלה…', note); return; }
+    const A = tGet(m.a), B = tGet(m.b);
+    const turn = A.g.guesses.length === B.g.guesses.length ? 0 : 1, mine = turn === side;
+    setTimer(`T${TO.code}:${key}:${A.g.guesses.length}:${B.g.guesses.length}`, c.timer, mine ? tTimeout : null);
+    if (!mine) message = { text: `מחכים ש${tn(oppSeat)} ינחש…`, err: false };
+    else if (message.text.startsWith('מחכים')) message = { text: '', err: false };
+    app.innerHTML = `${top(mine ? `${tTitle(k)} · <b>תורך</b>` : `${tTitle(k)} · התור של <b style="color:var(--p${2 - side})">${tn(oppSeat)}</b>`, c.timer)}
+      ${note}
+      <div class="mine-strip"><span>המספר הסודי שלך</span><span class="mini num">${TO.secret.split('').map(d => `<b>${esc(d)}</b>`).join('')}</span></div>
+      <div class="boards">${tMatchBoards(t, k, turn, seat)}</div>
+      ${toolsHTML(hintBarHTML(c, op.g.hints, me.g.guesses.length, me.g.hintReq > op.g.hints.length, true))}
+      ${slotsHTML(c.n, false)}${padHTML(c.n, c.rep, 'נחש', mine, TO.marks)}`;
+    bindPad(c.n, c.rep, () => { me.g.guesses.push(entry); entry = ''; message = { text: '', err: false }; tPush(); render(); }, mine, TO.marks, saveTO);
+    const h = app.querySelector('#hint');
+    if (h) h.onclick = () => { me.g.hintReq = op.g.hints.length + 1; tPush(); render(); };
+    scrollLogs();
+  }
+
+  function renderTWatch(t, seat, top, wait, note) {
+    const act = tActive(t);
+    if (!act.length) { app.innerHTML = wait('🏆 טורניר', 'מחכים…', note); return; }
+    const k = act.includes(TO.watch) ? TO.watch : act[0];
+    const m = t.m[k], key = tKey(t, k), A = tGet(m.a), B = tGet(m.b), c = t.cfg;
+    const other = act.find(x => x !== k);
+    const sw = other !== undefined ? `<button class="mark-btn" id="sw">👁 לצפות ב${tTitle(other).replace('🏆 ', '')}</button>` : '';
+    const upcoming = seat >= 0 && t.m.some((x, i) => !act.includes(i) && x.w === null && (x.a === seat || x.b === seat));
+    const status = seat < 0 ? 'את/ה צופה בטורניר.' : upcoming ? 'המשחק שלך יתחיל אחרי המשחק הזה.' : t.out.includes(seat) ? 'פרשת מהטורניר. את/ה צופה.' : 'המשחק שלך הסתיים. את/ה צופה.';
+    const head = `${note}<div class="tools"><span class="hint-note">${status}</span>${sw}</div>`;
+    if (!A || !B || A.g.key !== key || B.g.key !== key || !A.g.ready || !B.g.ready) {
+      app.innerHTML = `${top(`👁 ${tTitle(k)}`)}${head}<div class="screen center" style="align-items:center;text-align:center"><div class="spinner"></div>
+        <p>${!A || !B ? `מחכים ש${tn(!A ? m.a : m.b)} יתחבר…` : `${tn(m.a)} ו${tn(m.b)} בוחרים מספרים סודיים…`}</p></div>`;
+    } else {
+      const turn = A.g.guesses.length === B.g.guesses.length ? 0 : 1;
+      setTimer(`W${TO.code}:${key}:${A.g.guesses.length}:${B.g.guesses.length}`, c.timer, null);
+      app.style.cssText = pc(turn);
+      app.innerHTML = `${top(`👁 ${tTitle(k)} · התור של <b>${tn(turn === 0 ? m.a : m.b)}</b>`, c.timer)}${head}
+        <div class="boards">${tMatchBoards(t, k, turn, seat)}</div>
+        <p class="note" style="text-align:center">המספרים הסודיים ייחשפו בסוף המשחק.</p>`;
+      scrollLogs();
+    }
+    const s = app.querySelector('#sw');
+    if (s) s.onclick = () => { TO.watch = other; render(); };
+  }
+
   /* ---------- Boot ---------- */
   window.addEventListener('online', () => { if (MODE === 'lobby') render(); });
   window.addEventListener('offline', () => { if (MODE === 'lobby') render(); });
@@ -1331,6 +1752,8 @@ p { margin: 0; line-height: 1.5; color: var(--muted); }
   try { savedGame = JSON.parse(ls.get('cvc-game')); } catch (e) {}
   if (savedGame && savedGame.phase && savedGame.id && savedGame.cfg) {
     G = savedGame; MODE = 'local'; render();
+  } else if (loadTO() && ROOM.ok()) {
+    startTour(loadTO());
   } else if (T && T.phase !== 'setup') {
     MODE = 'tour'; render();
   } else if (loadOnline()) {
